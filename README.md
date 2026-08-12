@@ -56,10 +56,16 @@ Then:
 ./scripts/secrets.sh check                 # what exists, in repo and cluster
 ```
 
-`deploy.sh` verifies the cluster is reachable, the node exists, the Traefik and
-sealed-secrets CRDs are installed, and every required Secret has every required
-key — *before* applying anything. Then it waits on each rollout and reports
-pod, PVC, IngressRoute and warning-event state.
+`deploy.sh` verifies the cluster is reachable, the node exists, and the Traefik
+and sealed-secrets CRDs are installed — *before* applying anything. Then it
+waits on each rollout and reports pod, PVC, IngressRoute and warning-event
+state.
+
+Only Tailscale's auth key blocks a deploy; every other credential is optional,
+so a missing one warns and the remaining apps still go out. That is a
+convenience, not self-healing — those pods stay in
+`CreateContainerConfigError` until the Secret exists, and the warning says so
+per app. See [docs/SECRETS.md](docs/SECRETS.md#required-vs-optional).
 
 Read [docs/SECRETS.md](docs/SECRETS.md) first. Several apps (AdGuard Home,
 Jellyfin, Home Assistant, Pocket ID, Uptime Kuma, Beszel) have first-run wizard
