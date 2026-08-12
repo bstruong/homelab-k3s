@@ -21,6 +21,10 @@ secrets/
 # SealedSecret in this repo.
 *sealed-secrets-key*.yaml
 *.master.key
+*.backup-key
+*backup-key*
+sealed-secret-backups/
+sealed-secrets-backups/
 
 # Cluster access
 kubeconfig
