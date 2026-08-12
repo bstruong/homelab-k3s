@@ -1,0 +1,43 @@
+---
+# Vaultwarden refuses to serve the web vault over plain HTTP on a non-localhost
+# origin, so the HTTP route only redirects to HTTPS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: redirect-https
+  namespace: identity
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vaultwarden-http
+  namespace: identity
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`vault.watchtower.local`)
+      middlewares:
+        - name: redirect-https
+      services:
+        - name: vaultwarden
+          port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vaultwarden-https
+  namespace: identity
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`vault.watchtower.local`)
+      services:
+        - name: vaultwarden
+          port: 80
+  tls: {}

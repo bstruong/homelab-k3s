@@ -1,0 +1,103 @@
+---
+# GoTrue is AppFlowy Cloud's auth service. It shares the Postgres instance and
+# must be reachable by both appflowy-cloud (in-cluster) and clients (via the
+# /gotrue path on the ingress).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appflowy-gotrue
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy-gotrue
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: appflowy-gotrue
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: appflowy-gotrue
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: gotrue
+          # NOTE: AppFlowy publishes gotrue and appflowy_cloud as a matched
+          # pair. Pin both to the tags from the upstream docker-compose of the
+          # release you are running rather than tracking latest.
+          image: appflowyinc/gotrue:latest
+          envFrom:
+            - configMapRef:
+                name: appflowy-gotrue
+          env:
+            - name: GOTRUE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: jwt-secret
+            - name: GOTRUE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: gotrue-admin-password
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: database-url
+          ports:
+            - name: http
+              containerPort: 9999
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: appflowy-gotrue
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy-gotrue
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: appflowy-gotrue
+  ports:
+    - name: http
+      port: 9999
+      targetPort: http

@@ -1,0 +1,72 @@
+---
+# Beszel Hub — the web UI and metrics store. It talks to agents over SSH using
+# a keypair it generates on first start (see docs/SECRETS.md).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beszel-hub
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: beszel-hub
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beszel-hub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beszel-hub
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: beszel-hub
+          image: henrygd/beszel:0.9.1
+          ports:
+            - name: http
+              containerPort: 8090
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /beszel_data
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: beszel-hub-data
+        - name: tmp
+          emptyDir: {}

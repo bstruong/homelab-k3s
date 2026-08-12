@@ -1,0 +1,44 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: appflowy
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy
+data:
+  APPFLOWY_ENVIRONMENT: production
+  APPFLOWY_REDIS_URI: redis://appflowy-redis:6379
+  APPFLOWY_GOTRUE_BASE_URL: http://appflowy-gotrue:9999
+  APPFLOWY_GOTRUE_JWT_EXP: "7200"
+  APPFLOWY_ACCESS_CONTROL: "true"
+  APPFLOWY_WEBSOCKET_MAILBOX_SIZE: "6000"
+  APPFLOWY_DATABASE_MAX_CONNECTIONS: "20"
+  # Object storage — swap these for a real S3 endpoint if you outgrow MinIO.
+  APPFLOWY_S3_USE_MINIO: "true"
+  APPFLOWY_S3_MINIO_URL: http://appflowy-minio:9000
+  APPFLOWY_S3_BUCKET: appflowy
+  APPFLOWY_S3_REGION: us-east-1
+  RUST_LOG: info
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: appflowy-gotrue
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy-gotrue
+data:
+  PORT: "9999"
+  GOTRUE_DB_DRIVER: postgres
+  API_EXTERNAL_URL: https://appflowy.watchtower.local/gotrue
+  GOTRUE_SITE_URL: appflowy-flutter://
+  GOTRUE_URI_ALLOW_LIST: "**"
+  GOTRUE_JWT_EXP: "7200"
+  GOTRUE_JWT_AUD: authenticated
+  # No SMTP server in the homelab, so new accounts are confirmed immediately.
+  # Signups are closed by default — invite users from the admin console.
+  GOTRUE_MAILER_AUTOCONFIRM: "true"
+  GOTRUE_DISABLE_SIGNUP: "true"
+  GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"
+  GOTRUE_ADMIN_EMAIL: admin@watchtower.local

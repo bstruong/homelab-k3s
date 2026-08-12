@@ -1,0 +1,61 @@
+---
+# GoTrue is served under /gotrue, with the prefix stripped before it reaches
+# the service; everything else (REST + the /ws websocket) goes to
+# appflowy-cloud. Route order matters — the more specific rule needs the
+# higher priority.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: appflowy-gotrue-stripprefix
+  namespace: docs
+spec:
+  stripPrefix:
+    prefixes:
+      - /gotrue
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: appflowy-http
+  namespace: docs
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`appflowy.watchtower.local`) && PathPrefix(`/gotrue`)
+      priority: 20
+      middlewares:
+        - name: appflowy-gotrue-stripprefix
+      services:
+        - name: appflowy-gotrue
+          port: 9999
+    - kind: Rule
+      match: Host(`appflowy.watchtower.local`)
+      priority: 10
+      services:
+        - name: appflowy-cloud
+          port: 8000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: appflowy-https
+  namespace: docs
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`appflowy.watchtower.local`) && PathPrefix(`/gotrue`)
+      priority: 20
+      middlewares:
+        - name: appflowy-gotrue-stripprefix
+      services:
+        - name: appflowy-gotrue
+          port: 9999
+    - kind: Rule
+      match: Host(`appflowy.watchtower.local`)
+      priority: 10
+      services:
+        - name: appflowy-cloud
+          port: 8000
+  tls: {}

@@ -1,0 +1,126 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appflowy-cloud
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy-cloud
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: appflowy-cloud
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: appflowy-cloud
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # appflowy_cloud crash-loops if Postgres is not accepting connections
+        # when it runs its migrations.
+        - name: wait-for-postgres
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z appflowy-postgres 5432; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: appflowy-cloud
+          image: appflowyinc/appflowy_cloud:latest
+          envFrom:
+            - configMapRef:
+                name: appflowy
+          env:
+            - name: APPFLOWY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: database-url
+            - name: APPFLOWY_GOTRUE_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: jwt-secret
+            - name: APPFLOWY_GOTRUE_ADMIN_EMAIL
+              valueFrom:
+                configMapKeyRef:
+                  name: appflowy-gotrue
+                  key: GOTRUE_ADMIN_EMAIL
+            - name: APPFLOWY_GOTRUE_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: gotrue-admin-password
+            - name: APPFLOWY_S3_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: minio-access-key
+            - name: APPFLOWY_S3_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: appflowy
+                  key: minio-secret-key
+          ports:
+            - name: http
+              containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: tmp
+          emptyDir: {}

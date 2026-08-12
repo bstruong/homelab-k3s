@@ -1,0 +1,29 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: paperless-ngx-http
+  namespace: docs
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`paperless.watchtower.local`)
+      services:
+        - name: paperless-ngx
+          port: 8000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: paperless-ngx-https
+  namespace: docs
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`paperless.watchtower.local`)
+      services:
+        - name: paperless-ngx
+          port: 8000
+  tls: {}

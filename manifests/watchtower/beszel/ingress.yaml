@@ -1,0 +1,29 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: beszel-hub-http
+  namespace: monitoring
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`beszel.watchtower.local`)
+      services:
+        - name: beszel-hub
+          port: 8090
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: beszel-hub-https
+  namespace: monitoring
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`beszel.watchtower.local`)
+      services:
+        - name: beszel-hub
+          port: 8090
+  tls: {}
