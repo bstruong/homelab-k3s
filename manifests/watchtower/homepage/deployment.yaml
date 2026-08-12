@@ -1,0 +1,114 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homepage
+  namespace: home
+  labels:
+    app.kubernetes.io/name: homepage
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homepage
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homepage
+      annotations:
+        # Restarts the pod when the config changes; homepage only reads these
+        # files at startup.
+        checksum/config: "replace-me-on-config-change"
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      # The one workload that legitimately needs API access — its widgets read
+      # workload status. The ClusterRole is read-only, in rbac.yaml.
+      serviceAccountName: homepage
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Homepage writes logs into /app/config, so the ConfigMap cannot be
+        # mounted there directly (it is read-only). Copy the files into a
+        # writable emptyDir instead.
+        - name: seed-config
+          image: busybox:1.37
+          command: ["sh", "-c", "cp /seed/*.yaml /app/config/ && echo seeded config"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+            - name: config-seed
+              mountPath: /seed
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: homepage
+          image: ghcr.io/gethomepage/homepage:v0.10.9
+          env:
+            # Required since v0.9: homepage refuses requests whose Host header
+            # is not listed here.
+            - name: HOMEPAGE_ALLOWED_HOSTS
+              value: homepage.watchtower.local,watchtower.local
+            - name: PORT
+              value: "3000"
+          ports:
+            - name: http
+              containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+            - name: cache
+              mountPath: /app/.next/cache
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: config
+          emptyDir: {}
+        - name: config-seed
+          configMap:
+            name: homepage-config
+        - name: cache
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

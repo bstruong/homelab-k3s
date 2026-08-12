@@ -26,6 +26,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
       # The hub reaches the agent on the node's own address.
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet

@@ -1,0 +1,44 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: syncthing-data
+  labels:
+    app.kubernetes.io/name: syncthing
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/syncthing
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: sync
+    name: syncthing-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+# Holds both the config (including the device ID keypair) and the synced
+# folders themselves. The device ID is derived from the key here — replace it
+# and every peer has to re-accept this device.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: syncthing-data
+  namespace: sync
+  labels:
+    app.kubernetes.io/name: syncthing
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: syncthing-data
+  resources:
+    requests:
+      storage: 200Gi

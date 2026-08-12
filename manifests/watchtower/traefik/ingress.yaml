@@ -1,0 +1,31 @@
+---
+# The dashboard exposes routing config for the whole cluster, so it is behind
+# BasicAuth and HTTPS only — there is no plain-HTTP route for it.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: traefik-dashboard-auth
+  namespace: kube-system
+spec:
+  basicAuth:
+    # Created by scripts/secrets.sh — an htpasswd line under the key `users`.
+    secret: traefik-dashboard-auth
+    removeHeader: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: traefik-dashboard
+  namespace: kube-system
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`traefik.watchtower.local`) && (PathPrefix(`/dashboard`) || PathPrefix(`/api`))
+      middlewares:
+        - name: traefik-dashboard-auth
+      services:
+        # Traefik's internal API, not a Kubernetes Service.
+        - name: api@internal
+          kind: TraefikService
+  tls: {}

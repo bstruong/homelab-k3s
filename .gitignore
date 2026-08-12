@@ -1,7 +1,48 @@
-# Never commit rendered secrets or kubeconfigs.
+# ---------------------------------------------------------------------------
+# This is a PUBLIC repository. Nothing unencrypted that grants access to
+# anything may be committed, ever.
+#
+# SealedSecret manifests (manifests/**/sealedsecret.yaml) ARE safe to commit —
+# they are encrypted to the cluster's public key and can only be decrypted by
+# the sealed-secrets controller running in it. Everything below is the
+# plaintext that produces them, and must stay local.
+# ---------------------------------------------------------------------------
+
+# Plaintext Secret manifests. `kind: Secret` must never be committed.
+secret.yaml
+secret-*.yaml
 *.secret.yaml
+*.plain.yaml
+*.plaintext.yaml
 secrets/
+.secrets/
+
+# Sealed-secrets private keys — a backup of these can decrypt every
+# SealedSecret in this repo.
+*sealed-secrets-key*.yaml
+*.master.key
+
+# Cluster access
 kubeconfig
 *.kubeconfig
+.kube/
+
+# Credentials and key material
 .env
+.env.*
+!.env.example
+*.pem
+*.key
+!**/*.pub
+*.p12
+*.pfx
+id_rsa*
+id_ed25519*
+*.age
+*.agekey
+
+# Tailscale / auth key scratch files
+tskey*
+authkey*
+
 .DS_Store

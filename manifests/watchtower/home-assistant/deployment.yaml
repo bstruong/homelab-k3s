@@ -1,0 +1,123 @@
+---
+# ROOT IS REQUIRED HERE. The official image is built on s6-overlay, which does
+# its supervision and permission setup as uid 0 before dropping down; there is
+# no supported non-root mode. Capabilities are dropped and there are no host
+# mounts, so the blast radius stays inside the pod.
+#
+# NOTE ON DISCOVERY: mDNS, DHCP and SSDP integrations need to see the LAN's
+# broadcast traffic, which a pod network does not carry. If you rely on those,
+# set hostNetwork: true and dnsPolicy: ClusterFirstWithHostNet below — the
+# service then targets port 8123 on the node directly. Left off by default
+# because it puts the container on the host's network namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: home-assistant
+  namespace: home
+  labels:
+    app.kubernetes.io/name: home-assistant
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: home-assistant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: home-assistant
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Seed the config only when the volume is empty, so UI edits are never
+        # overwritten on restart.
+        - name: seed-config
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              set -eu
+              for f in configuration.yaml automations.yaml scripts.yaml scenes.yaml; do
+                if [ ! -f "/config/${f}" ]; then
+                  cp "/seed/${f}" "/config/${f}"
+                  echo "seeded ${f}"
+                else
+                  echo "${f} already present, leaving it alone"
+                fi
+              done
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /config
+            - name: config-seed
+              mountPath: /seed
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: home-assistant
+          image: ghcr.io/home-assistant/home-assistant:2025.7.1
+          env:
+            - name: TZ
+              value: America/Los_Angeles
+          ports:
+            - name: http
+              containerPort: 8123
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /config
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            # A first start compiles and loads every integration; this can take
+            # several minutes on modest hardware.
+            failureThreshold: 40
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: config
+          persistentVolumeClaim:
+            claimName: home-assistant-config
+        - name: config-seed
+          configMap:
+            name: home-assistant-config

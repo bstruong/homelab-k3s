@@ -1,127 +1,175 @@
-# Secrets and manual setup steps
+# Secrets
 
-No credential in this repo is committed. Every workload reads its credentials
-from a Kubernetes Secret, and `deploy.sh` refuses to apply an app whose Secret
-is missing a required key.
+**This repository is public.** No credential is committed to it in a form
+anyone can read, and the tooling is built so that committing one by accident
+takes deliberate effort.
 
-The fastest path is `./scripts/create-secrets.sh --show`, which generates the
-random ones and prompts for the rest. Everything below documents what that
-script does, so you can create them by hand instead if you prefer.
+## How it works
 
-## Secrets
+Credentials reach the cluster one of two ways.
 
-### `identity/vaultwarden`
+**Sealed Secrets (the supported path).** The
+[sealed-secrets](https://github.com/bitnami-labs/sealed-secrets) controller
+generates a keypair inside the cluster. `kubeseal` encrypts a Secret to the
+public half, producing a `SealedSecret` that only that controller can decrypt.
+Those encrypted manifests live in this repo at
+`manifests/watchtower/<app>/sealedsecret.yaml` and are safe to publish — an
+attacker with the whole repository gets ciphertext and nothing else.
 
-| Key | What it is |
-| --- | --- |
-| `admin-token` | Guards the Vaultwarden `/admin` panel. Any long random string. |
+**Direct Secrets (the fallback).** `scripts/secrets.sh apply` creates ordinary
+Secrets in the cluster and writes nothing to disk. Use this if you would rather
+not run the controller; the tradeoff is that your credentials then exist only
+in the cluster, so their backup is on you.
 
-```sh
-kubectl -n identity create secret generic vaultwarden \
-  --from-literal=admin-token="$(openssl rand -base64 48)"
-```
+Either way, plaintext never touches the filesystem: values are generated in
+memory and piped straight into `kubeseal` or `kubectl`.
 
-Note: this is **not** a Vaultwarden master password. Master passwords are
-chosen per user in the web vault and never leave the client — they cannot be
-provisioned from Kubernetes, and there is no recovery if one is lost.
-
-### `docs/paperless-ngx`
-
-| Key | What it is |
-| --- | --- |
-| `secret-key` | Django `SECRET_KEY`. Changing it invalidates all sessions. |
-| `admin-user` | Username for the superuser created on first start. |
-| `admin-password` | Password for that superuser. |
+## Setup
 
 ```sh
-kubectl -n docs create secret generic paperless-ngx \
-  --from-literal=secret-key="$(openssl rand -base64 48)" \
-  --from-literal=admin-user=admin \
-  --from-literal=admin-password="$(openssl rand -base64 18)"
+./scripts/install-hooks.sh                  # pre-commit guard, once per clone
+./scripts/bootstrap-sealed-secrets.sh       # install the controller
+./scripts/secrets.sh seal --show            # generate, seal, print once
+./scripts/bootstrap-sealed-secrets.sh --backup-key
+git add manifests/watchtower/*/sealedsecret.yaml && git commit
+./deploy.sh
 ```
 
-The superuser is only created if the database has no users yet. Changing
-`admin-password` later does **not** change the existing account — use
-`kubectl -n docs exec deploy/paperless-ngx -- python3 manage.py changepassword admin`.
+`--show` is the only time the generated values are ever printed. Put them in a
+password manager at that moment; they are stored as ciphertext and hashes and
+cannot be recovered afterwards.
 
-### `docs/appflowy`
+**Back up the controller's private key.** Without it, a rebuilt cluster cannot
+decrypt anything in this repo and every credential has to be regenerated. The
+backup file is gitignored, but move it offline rather than relying on that.
 
-| Key | What it is |
-| --- | --- |
-| `postgres-password` | Password for the `postgres` superuser in the AppFlowy StatefulSet. |
-| `database-url` | Full connection URL. Must embed the same password. |
-| `jwt-secret` | Shared by GoTrue and appflowy-cloud to sign and verify JWTs — they must match exactly or every request 401s. |
-| `gotrue-admin-password` | Password for the GoTrue admin account (`admin@watchtower.local`). |
-| `minio-access-key` | MinIO root user. |
-| `minio-secret-key` | MinIO root password. |
+## What the guards actually block
 
-`postgres-password` and `database-url` are two views of one credential; if you
-rotate the password, rotate the URL in the same `kubectl` call.
+`scripts/install-hooks.sh` points `core.hooksPath` at `scripts/git-hooks`. The
+pre-commit hook rejects:
 
-### `monitoring/beszel-agent`
+* any file containing `kind: Secret` — seal it instead
+* `stringData:` blocks
+* `.env` files, `*.pem`, `*.key`, and SSH private keys
+* Tailscale auth keys (`tskey-…`) and Postgres URLs with inline passwords
+* anything `gitleaks` flags, if it is installed (`brew install gitleaks`)
 
-| Key | What it is |
-| --- | --- |
-| `hub-public-key` | The Beszel Hub's SSH public key. The agent only accepts connections signed by it. |
+`.gitignore` covers the plaintext intermediates and key backups. `.gitleaks.toml`
+drives full-history scanning: `gitleaks detect`.
 
-This one cannot be generated ahead of time — the hub creates the keypair on
-first start. Order of operations:
+The hook is a safety net, not a boundary — `--no-verify` bypasses it. The real
+protection is that no workflow here ever writes a plaintext credential to disk.
 
-1. Deploy the hub: `./deploy.sh beszel` (the agent will CrashLoop until step 4 —
-   that is expected).
-2. Open `https://beszel.watchtower.local` and create the admin account. This is
-   a first-run web form, not a Secret; Beszel stores it in its own database.
-3. Click **Add System**. Copy the public key it shows.
-4. `kubectl -n monitoring create secret generic beszel-agent --from-literal=hub-public-key='ssh-ed25519 AAAA...'`
+## The secrets
+
+`./scripts/secrets.sh list` prints this table; `check` reports what exists.
+
+| App | Namespace | Secret | Keys |
+| --- | --- | --- | --- |
+| Traefik | `kube-system` | `traefik-dashboard-auth` | `users` |
+| Tailscale | `kube-system` | `tailscale` | `authkey` |
+| Vaultwarden | `identity` | `vaultwarden` | `admin-token` |
+| CrowdSec | `monitoring` | `crowdsec` | `bouncer-key`, `enroll-key` |
+| Beszel | `monitoring` | `beszel-agent` | `hub-public-key` |
+| Paperless-ngx | `docs` | `paperless-ngx` | `secret-key`, `admin-user`, `admin-password` |
+| AppFlowy | `docs` | `appflowy` | `postgres-password`, `database-url`, `jwt-secret`, `gotrue-admin-password`, `minio-access-key`, `minio-secret-key` |
+| Syncthing | `sync` | `syncthing` | `gui-apikey` |
+
+Notes on the ones with sharp edges:
+
+* **`traefik-dashboard-auth/users`** is an htpasswd line, not a password. Only
+  the bcrypt hash is stored; the password is shown once by `--show`.
+* **`tailscale/authkey`** must be supplied by you — generate a reusable,
+  pre-authorized key at
+  <https://login.tailscale.com/admin/settings/keys>. Tag it so your ACLs can
+  target the node. Rotate it after the node has registered; the node key on the
+  PVC is what keeps it connected.
+* **`crowdsec/enroll-key`** may be empty. It only links the instance to
+  app.crowdsec.net. The key must exist, but an empty value simply disables
+  enrollment.
+* **`appflowy/postgres-password` and `database-url`** are two views of one
+  credential. Rotate them in the same command or GoTrue and appflowy-cloud will
+  disagree with Postgres.
+* **`appflowy/jwt-secret`** is shared by GoTrue and appflowy-cloud. If they
+  ever differ, every request 401s.
+* **`beszel-agent/hub-public-key`** cannot be generated ahead of time — see
+  below.
+
+## Ordering: Beszel
+
+The hub creates its SSH keypair on first start, so the agent's Secret cannot
+exist until the hub has run once.
+
+1. `./deploy.sh beszel` — the agent CrashLoops until step 4. That is expected.
+2. Open <https://beszel.watchtower.local> and create the admin account.
+3. **Add System** → copy the public key it displays.
+4. `./scripts/secrets.sh seal beszel --force` (or `apply beszel --force`) and
+   paste the key when prompted.
 5. `kubectl -n monitoring rollout restart daemonset/beszel-agent`
 
-Register the system in the hub with host `watchtower` (the node's LAN address)
-and port `45876`.
+Register the system in the hub with host `watchtower` and port `45876`.
 
-## Credentials that are *not* Kubernetes Secrets
+## Credentials that are not Kubernetes Secrets
 
-Some apps own their own credential store and set it up through a first-run
-wizard. There is no manifest-level way to inject these.
+These apps own their own credential store and set it up through a first-run
+wizard. Nothing in a manifest can provision them.
 
-### AdGuard Home admin password
+**AdGuard Home** — <https://dns.watchtower.local> runs a setup wizard. Set the
+admin interface to port **3000** and DNS to **53**; the Service and probes
+assume 3000. The password is bcrypt-hashed into
+`/mnt/appdata/adguard-home/conf/AdGuardHome.yaml`. To reset it, edit the
+`users:` block on the node and restart the deployment.
 
-AdGuard hashes the admin password into `AdGuardHome.yaml` inside its own data
-directory, during the setup wizard.
+**Jellyfin** — first-run wizard creates the admin. While you are there, finish
+the Direct Play setup, which the ConfigMap only half covers. Under
+**Dashboard → Users → \<user\> → Playback**, clear for *every* user:
 
-1. `https://dns.watchtower.local` → setup wizard.
-2. Set the **admin interface** to port `3000` and **DNS** to port `53`. The
-   manifests, Service, and probes all assume 3000; changing it in the wizard
-   will break the readiness probe.
-3. Choose the admin username and password. Store them in your password manager.
+* Allow audio playback that requires transcoding
+* Allow video playback that requires transcoding
+* Allow video playback that requires re-muxing
 
-To reset it later, edit `users:` in
-`/mnt/appdata/adguard-home/conf/AdGuardHome.yaml` on the node with a fresh
-bcrypt hash and restart the deployment.
+These are per-user policies in Jellyfin's database. With them cleared, an
+unsupported file fails to play instead of silently pulling the node into a
+software transcode.
 
-### Jellyfin admin account
+**Home Assistant** — <https://home.watchtower.local> onboarding creates the
+owner account. Everything after that lives in `.storage/` on the PVC, which is
+sensitive: it holds long-lived tokens and every integration's credentials.
 
-Created through the first-run wizard at `https://jellyfin.watchtower.local`.
+**Pocket ID** — passkey-only, so there is no admin password. The first-run
+setup link is printed in the pod log:
+`kubectl -n identity logs deploy/pocket-id | grep -i setup`. Note that passkeys
+are bound to `APP_URL` — changing the hostname later invalidates every
+registered credential.
 
-While you are there, finish the Direct Play configuration — the ConfigMap only
-covers the server half:
+**Uptime Kuma** — the first page load creates the admin account. Do it promptly;
+until then, anyone who can reach the host can claim it.
 
-* **Dashboard → Users → \<user\> → Playback**, clear:
-  * Allow audio playback that requires transcoding
-  * Allow video playback that requires transcoding
-  * Allow video playback that requires re-muxing
-* Do this for every user, including the admin. These are per-user policies
-  stored in Jellyfin's database, so they cannot be set from a manifest.
-
-With those cleared, an unsupported file fails to play rather than silently
-pulling the node into a software transcode.
+**Vaultwarden master passwords** — chosen per user in the web vault and never
+sent to the server. They cannot be provisioned, and there is no recovery.
+`SIGNUPS_ALLOWED` is `false`; invite users from the `/admin` panel.
 
 ## Rotation
 
 ```sh
-kubectl -n <namespace> create secret generic <name> \
-  --from-literal=<key>=<new-value> --dry-run=client -o yaml | kubectl apply -f -
+./scripts/secrets.sh seal <app> --force --show
+git add manifests/watchtower/<app>/sealedsecret.yaml && git commit
+./deploy.sh <app>
 kubectl -n <namespace> rollout restart deployment/<name>
 ```
 
-Pods do not pick up changes to Secrets consumed via `env` until they restart,
-so the rollout restart is required, not optional.
+The restart is required, not optional: Secrets consumed through `env` are read
+once at container start.
+
+## If something leaks
+
+1. Rotate at the source first — revoke the Tailscale key in the admin console,
+   change the Postgres password, regenerate the Vaultwarden admin token. A
+   credential removed from git but still valid is still leaked.
+2. Rotate with `--force` as above and redeploy.
+3. Only then worry about the history. Rewriting it with `git filter-repo` is
+   worth doing, but treat anything ever pushed to a public remote as
+   permanently disclosed — clones, forks and caches keep it.
+4. If the sealed-secrets private key itself is exposed, rotate the controller's
+   keypair and re-seal everything; the committed ciphertext must be considered
+   readable.

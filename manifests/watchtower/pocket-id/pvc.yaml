@@ -1,0 +1,43 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pocket-id-data
+  labels:
+    app.kubernetes.io/name: pocket-id
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/pocket-id
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: identity
+    name: pocket-id-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+# Holds the SQLite database and the OIDC signing key. Back this up: losing the
+# signing key invalidates every issued token and every registered passkey.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pocket-id-data
+  namespace: identity
+  labels:
+    app.kubernetes.io/name: pocket-id
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: pocket-id-data
+  resources:
+    requests:
+      storage: 5Gi
