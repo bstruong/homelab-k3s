@@ -69,7 +69,29 @@ fi
 
 # Random value from a URL-safe alphabet: no shell metacharacters, so these are
 # safe to embed in connection strings and htpasswd lines.
-gen() { LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c "${1:-48}"; }
+#
+# Reads /dev/urandom in finite blocks rather than streaming it. The obvious
+# version of this function --
+#
+#   tr -dc 'A-Za-z0-9' </dev/urandom | head -c "$1"
+#
+# -- looks correct and prints a correct value, but exits 141: `head` closes the
+# pipe as soon as it has enough bytes, `tr` is still writing an endless stream
+# and dies of SIGPIPE, and `set -o pipefail` (set at the top of this script)
+# then reports the pipeline as failed. Under `set -e` that aborted the caller
+# mid-generation, which is a silent failure rather than a loud one. See
+# collect().
+gen() {
+  local n="${1:-48}" out=""
+  while (( ${#out} < n )); do
+    # 8 bytes per character wanted, plus a floor: only ~24% of random bytes
+    # land in [A-Za-z0-9], so this clears n on the first pass in practice.
+    # `head` bounds the read, so `tr` reaches EOF on its own and exits 0.
+    out+="$(LC_ALL=C head -c "$(( (n - ${#out}) * 8 + 64 ))" /dev/urandom \
+            | LC_ALL=C tr -dc 'A-Za-z0-9')"
+  done
+  printf '%s' "${out:0:n}"
+}
 
 # Reads from the terminal so it still works with stdout redirected.
 prompt() {
@@ -194,17 +216,33 @@ app_literals() {
   esac
 }
 
-# Populates LITERALS and SUMMARY for one app. The `while ... done < <(...)`
-# form keeps the loop body in this shell, which is what makes that possible.
+# Populates LITERALS and SUMMARY for one app. The loop body runs in this shell,
+# which is what lets it assign to them at all.
+#
+# The generator's output is captured first rather than streamed from a process
+# substitution. A process substitution discards the writer's exit status, so a
+# generator that died partway through was indistinguishable from one that had
+# nothing to say -- and every caller reported the second thing ("nothing to
+# seal") while the first was what had actually happened. Capturing makes the
+# status observable.
+#
+# prompt() is unaffected: it reads /dev/tty and writes its question to stderr,
+# and neither is captured here.
 collect() {
-  local line
+  local line output status=0
   LITERALS=()
+
+  output="$(app_literals "$1")" || status=$?
+  if (( status != 0 )); then
+    die "generating credentials for $1 failed (exit ${status})"
+  fi
+
   while IFS= read -r line; do
     case "${line}" in
       literal:*) LITERALS+=("--from-literal=${line#literal:}") ;;
       summary:*) SUMMARY+=("${line#summary:}") ;;
     esac
-  done < <(app_literals "$1")
+  done <<<"${output}"
 }
 
 # Writes the Secret YAML to stdout from the already-collected LITERALS.
