@@ -33,16 +33,41 @@ KUBE_SYSTEM_WORKLOADS=(deployment/tailscale)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
+# app|namespace|secret|keys
+#
+# A key marked with a trailing `?` is OPTIONAL: it may be absent or empty, and
+# its absence downgrades the app rather than aborting the deploy. A secret with
+# at least one unmarked key is REQUIRED and blocks the run.
+#
+# Optional does not mean the app invents the credential for itself. Every
+# reference in these manifests is a plain secretKeyRef, so a pod whose Secret is
+# missing stays in CreateContainerConfigError until it exists — the deploy
+# continues and the rest of the stack comes up, which is the point. See
+# consequence_for_app() for what each one actually costs.
 SECRET_SPECS=(
-  "traefik|kube-system|traefik-dashboard-auth|users"
+  "traefik|kube-system|traefik-dashboard-auth|users?"
   "tailscale|kube-system|tailscale|authkey"
-  "vaultwarden|identity|vaultwarden|admin-token"
-  "crowdsec|monitoring|crowdsec|bouncer-key,enroll-key?"
-  "beszel|monitoring|beszel-agent|hub-public-key"
-  "paperless-ngx|docs|paperless-ngx|secret-key,admin-user,admin-password"
-  "appflowy|docs|appflowy|postgres-password,database-url,jwt-secret,gotrue-admin-password,minio-access-key,minio-secret-key"
-  "syncthing|sync|syncthing|gui-apikey"
+  "vaultwarden|identity|vaultwarden|admin-token?"
+  "crowdsec|monitoring|crowdsec|bouncer-key?,enroll-key?"
+  "beszel|monitoring|beszel-agent|hub-public-key?"
+  "paperless-ngx|docs|paperless-ngx|secret-key?,admin-user?,admin-password?"
+  "appflowy|docs|appflowy|postgres-password?,database-url?,jwt-secret?,gotrue-admin-password?,minio-access-key?,minio-secret-key?"
+  "syncthing|sync|syncthing|gui-apikey?"
 )
+
+# What actually happens when an optional secret is missing.
+consequence_for_app() {
+  case "$1" in
+    traefik)       echo "the dashboard route returns 500; Traefik itself is unaffected" ;;
+    vaultwarden)   echo "vaultwarden pod stays in CreateContainerConfigError" ;;
+    crowdsec)      echo "crowdsec pod stays in CreateContainerConfigError" ;;
+    beszel)        echo "beszel-agent will not start; the hub generates this key on first run (docs/SECRETS.md)" ;;
+    paperless-ngx) echo "paperless-ngx pod stays in CreateContainerConfigError" ;;
+    appflowy)      echo "all five appflowy pods stay in CreateContainerConfigError" ;;
+    syncthing)     echo "syncthing pod stays in CreateContainerConfigError" ;;
+    *)             echo "the app may not start" ;;
+  esac
+}
 
 RED=$'\033[0;31m'; GREEN=$'\033[0;32m'; YELLOW=$'\033[0;33m'; BLUE=$'\033[0;34m'; NC=$'\033[0m'
 info()  { printf '%s==>%s %s\n' "${BLUE}"   "${NC}" "$*"; }
@@ -131,21 +156,22 @@ EOF
 
 # ------------------------------------------------------------------ secrets --
 
-spec_for_app() {
-  local app="$1" spec
-  for spec in "${SECRET_SPECS[@]}"; do
-    if [[ "${spec%%|*}" == "${app}" ]]; then
-      printf '%s' "${spec}"
-      return 0
-    fi
-  done
-  return 1
-}
-
 # Lists the key names present in a Secret. Checking names rather than values
 # lets a key legitimately hold an empty string (CrowdSec's enroll-key).
 secret_keys() {
   kubectl -n "$1" get secret "$2" -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null
+}
+
+# True when a spec has at least one key without a `?` marker.
+spec_is_required() {
+  local keys="$1" key key_list
+  IFS=, read -r -a key_list <<<"${keys}"
+  for key in "${key_list[@]}"; do
+    if [[ "${key}" != *\? ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 apply_sealed_secrets() {
@@ -168,11 +194,11 @@ apply_sealed_secrets() {
   if [[ ${found} -eq 0 ]]; then
     info "No SealedSecrets committed — expecting Secrets to already exist"
   elif [[ "${DRY_RUN}" != true ]]; then
-    # The controller decrypts asynchronously; give it a moment before the
-    # check below declares the Secrets missing.
+    # The controller decrypts asynchronously. Wait only on the secrets we just
+    # applied — waiting on ones nobody sealed would always time out.
     local waited=0
     while [[ ${waited} -lt ${UNSEAL_TIMEOUT} ]]; do
-      if secrets_satisfied >/dev/null 2>&1; then
+      if sealed_secrets_unsealed; then
         break
       fi
       sleep 2
@@ -181,29 +207,30 @@ apply_sealed_secrets() {
   fi
 }
 
-# Returns 0 when every required Secret and key is present. Prints nothing.
-secrets_satisfied() {
-  local spec app ns name keys key key_list present
+# Returns 0 once every app with a committed sealedsecret.yaml has its Secret.
+sealed_secrets_unsealed() {
+  local spec app ns name keys
   for spec in "${SECRET_SPECS[@]}"; do
     IFS='|' read -r app ns name keys <<<"${spec}"
     if [[ -n "${ONLY_APP}" && "${app}" != "${ONLY_APP}" ]]; then
       continue
     fi
-    present="$(secret_keys "${ns}" "${name}")" || return 1
-    if [[ -z "${present}" ]]; then
+    if [[ ! -f "${MANIFEST_DIR}/${app}/sealedsecret.yaml" ]]; then
+      continue
+    fi
+    if [[ -z "$(secret_keys "${ns}" "${name}")" ]]; then
       return 1
     fi
-    IFS=, read -r -a key_list <<<"${keys}"
-    for key in "${key_list[@]}"; do
-      grep -Fxq "${key%\?}" <<<"${present}" || return 1
-    done
   done
   return 0
 }
 
+# Required secrets abort the run. Optional ones only warn: the rest of the
+# stack still deploys, and the warning says what that costs.
 check_secrets() {
-  info "Checking required secrets"
-  local spec app ns name keys key key_list present missing=0 bad
+  info "Checking secrets"
+  local spec app ns name keys key key_list present required
+  local blocking=0 degraded=0
 
   for spec in "${SECRET_SPECS[@]}"; do
     IFS='|' read -r app ns name keys <<<"${spec}"
@@ -211,35 +238,65 @@ check_secrets() {
       continue
     fi
 
-    present="$(secret_keys "${ns}" "${name}")"
+    if spec_is_required "${keys}"; then
+      required=true
+    else
+      required=false
+    fi
+
+    # `|| true`: kubectl exits non-zero when the Secret does not exist, and a
+    # missing Secret is a case to report, not a reason to abort under `set -e`.
+    present="$(secret_keys "${ns}" "${name}" || true)"
+
     if [[ -z "${present}" ]]; then
-      fail "missing secret ${ns}/${name} (for ${app})"
-      missing=$((missing + 1))
+      if [[ "${required}" == true ]]; then
+        fail "missing secret ${ns}/${name} (required by ${app})"
+        blocking=$((blocking + 1))
+      else
+        warn "missing secret ${ns}/${name} — $(consequence_for_app "${app}")"
+        degraded=$((degraded + 1))
+      fi
       continue
     fi
 
-    bad=0
+    local missing_required=0 missing_optional=0
     IFS=, read -r -a key_list <<<"${keys}"
     for key in "${key_list[@]}"; do
-      if ! grep -Fxq "${key%\?}" <<<"${present}"; then
-        fail "secret ${ns}/${name} has no key '${key%\?}'"
-        bad=$((bad + 1))
+      if grep -Fxq "${key%\?}" <<<"${present}"; then
+        continue
+      fi
+      if [[ "${key}" == *\? ]]; then
+        missing_optional=$((missing_optional + 1))
+      else
+        fail "secret ${ns}/${name} has no key '${key}'"
+        missing_required=$((missing_required + 1))
       fi
     done
 
-    if [[ ${bad} -eq 0 ]]; then
-      ok "secret ${ns}/${name}"
+    if [[ ${missing_required} -gt 0 ]]; then
+      blocking=$((blocking + missing_required))
+    elif [[ ${missing_optional} -gt 0 ]]; then
+      warn "secret ${ns}/${name} is incomplete (${missing_optional} optional key(s)) — $(consequence_for_app "${app}")"
+      degraded=$((degraded + 1))
     else
-      missing=$((missing + bad))
+      ok "secret ${ns}/${name}"
     fi
   done
 
-  if [[ ${missing} -gt 0 ]]; then
+  if [[ ${degraded} -gt 0 ]]; then
     echo
-    fail "${missing} secret problem(s)."
-    echo "  Seal them into the repo:   ./scripts/secrets.sh seal --show" >&2
-    echo "  Or create them in-cluster: ./scripts/secrets.sh apply --show" >&2
-    echo "  Details:                   docs/SECRETS.md" >&2
+    warn "${degraded} optional secret(s) missing. Deploying anyway; those pods"
+    warn "will not start until the secrets exist. Create them with:"
+    echo "    ./scripts/secrets.sh seal --show     # encrypt into the repo" >&2
+    echo "    ./scripts/secrets.sh apply --show    # create in-cluster only" >&2
+  fi
+
+  if [[ ${blocking} -gt 0 ]]; then
+    echo
+    fail "${blocking} required secret problem(s) — nothing was deployed."
+    echo "  Create them:  ./scripts/secrets.sh seal --show" >&2
+    echo "  Or:           ./scripts/secrets.sh apply --show" >&2
+    echo "  Details:      docs/SECRETS.md" >&2
     exit 1
   fi
 }
