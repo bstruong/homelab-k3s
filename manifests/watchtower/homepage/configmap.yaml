@@ -116,14 +116,34 @@ data:
         provider: duckduckgo
         target: _blank
 
+  # The Headscale bookmark is NOT equivalent to the Tailscale one it replaced.
+  # That one pointed at login.tailscale.com/admin/machines — the device manager.
+  # Headscale ships no such web UI. The URL below is the coordination server;
+  # `/` returns 200 with a literally empty document — `<body></body>`, verified
+  # against headscale 0.29.2 — so the bookmark is a jumping-off point, not a
+  # device list.
+  #
+  # To actually see or manage connected devices, run on Watchtower:
+  #
+  #   sudo headscale nodes list
+  #   sudo headscale nodes delete --identifier <id>
+  #
+  # A web device manager means deploying a community project — headscale-ui or
+  # headscale-admin — neither of which is in this repo. If you add one, give it
+  # its own manifest directory and point this bookmark at its IngressRoute
+  # instead.
+  #
+  # Headscale runs as a host service on Watchtower, not in k3s, so this is a
+  # direct host:port URL that bypasses Traefik. 192.168.1.92:8080 works too, if
+  # mDNS resolution is unreliable from a given client.
   bookmarks.yaml: |
     - Homelab:
         - Repository:
             - abbr: GH
               href: https://github.com/bstruong/homelab-k3s
-        - Tailscale:
-            - abbr: TS
-              href: https://login.tailscale.com/admin/machines
+        - Headscale:
+            - abbr: HS
+              href: http://watchtower.local:8080
 
   kubernetes.yaml: |
     mode: cluster
