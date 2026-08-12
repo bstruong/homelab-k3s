@@ -64,16 +64,35 @@ protection is that no workflow here ever writes a plaintext credential to disk.
 
 `./scripts/secrets.sh list` prints this table; `check` reports what exists.
 
-| App | Namespace | Secret | Keys |
-| --- | --- | --- | --- |
-| Traefik | `kube-system` | `traefik-dashboard-auth` | `users` |
-| Tailscale | `kube-system` | `tailscale` | `authkey` |
-| Vaultwarden | `identity` | `vaultwarden` | `admin-token` |
-| CrowdSec | `monitoring` | `crowdsec` | `bouncer-key`, `enroll-key` |
-| Beszel | `monitoring` | `beszel-agent` | `hub-public-key` |
-| Paperless-ngx | `docs` | `paperless-ngx` | `secret-key`, `admin-user`, `admin-password` |
-| AppFlowy | `docs` | `appflowy` | `postgres-password`, `database-url`, `jwt-secret`, `gotrue-admin-password`, `minio-access-key`, `minio-secret-key` |
-| Syncthing | `sync` | `syncthing` | `gui-apikey` |
+| App | Namespace | Secret | Keys | Blocks deploy? |
+| --- | --- | --- | --- | --- |
+| Traefik | `kube-system` | `traefik-dashboard-auth` | `users` | no |
+| Tailscale | `kube-system` | `tailscale` | `authkey` | **yes** |
+| Vaultwarden | `identity` | `vaultwarden` | `admin-token` | no |
+| CrowdSec | `monitoring` | `crowdsec` | `bouncer-key`, `enroll-key` | no |
+| Beszel | `monitoring` | `beszel-agent` | `hub-public-key` | no |
+| Paperless-ngx | `docs` | `paperless-ngx` | `secret-key`, `admin-user`, `admin-password` | no |
+| AppFlowy | `docs` | `appflowy` | `postgres-password`, `database-url`, `jwt-secret`, `gotrue-admin-password`, `minio-access-key`, `minio-secret-key` | no |
+| Syncthing | `sync` | `syncthing` | `gui-apikey` | no |
+
+### Required vs optional
+
+Only Tailscale's `authkey` aborts `deploy.sh`, because a subnet router with no
+auth key has nothing to do and cannot obtain one later on its own. Everything
+else is marked optional (a `?` suffix in `SECRET_SPECS`) so that one missing
+credential does not stop the other fourteen apps from deploying.
+
+**Optional does not mean the app copes without it.** Every reference in these
+manifests is a plain `secretKeyRef` with no `optional: true`, so a pod whose
+Secret is missing sits in `CreateContainerConfigError` until you create it.
+What optional buys you is a warning and a working deploy for everything else,
+instead of an abort. `deploy.sh` names the exact consequence per app.
+
+The one genuinely graceful case is Traefik: without `traefik-dashboard-auth`
+the dashboard route returns 500 and Traefik itself is unaffected.
+
+Beszel is optional for a different reason — its key *cannot* exist before the
+first deploy. See the ordering section below.
 
 Notes on the ones with sharp edges:
 
