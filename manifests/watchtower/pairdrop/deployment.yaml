@@ -1,24 +1,22 @@
 ---
-# Beszel Hub — the web UI and metrics store. It talks to agents over SSH using
-# a keypair it generates on first start (see docs/SECRETS.md).
+# PairDrop is stateless — transfers are peer-to-peer WebRTC and nothing is
+# stored server-side, so there is no PVC here.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: beszel-hub
-  namespace: monitoring
+  name: pairdrop
+  namespace: sync
   labels:
-    app.kubernetes.io/name: beszel-hub
+    app.kubernetes.io/name: pairdrop
 spec:
   replicas: 1
-  strategy:
-    type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: beszel-hub
+      app.kubernetes.io/name: pairdrop
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: beszel-hub
+        app.kubernetes.io/name: pairdrop
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
@@ -27,47 +25,53 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         runAsGroup: 1000
-        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: beszel-hub
-          image: henrygd/beszel:0.9.1
+        - name: pairdrop
+          image: ghcr.io/schlagmichdoch/pairdrop:v1.11.2
+          env:
+            - name: PORT
+              value: "3000"
+            # PairDrop groups peers by public IP. Behind Traefik every request
+            # would otherwise appear to come from the ingress pod, so it has to
+            # trust the forwarded header to see real client addresses.
+            - name: RATE_LIMIT
+              value: "false"
+            - name: WS_FALLBACK
+              value: "true"
+            - name: IPV6_LOCALIZE
+              value: "4"
           ports:
             - name: http
-              containerPort: 8090
+              containerPort: 3000
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
           volumeMounts:
-            - name: data
-              mountPath: /beszel_data
             - name: tmp
               mountPath: /tmp
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /
               port: http
             initialDelaySeconds: 20
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /
               port: http
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:
             requests:
-              cpu: 50m
-              memory: 128Mi
+              cpu: 25m
+              memory: 64Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 250m
+              memory: 256Mi
       volumes:
-        - name: data
-          persistentVolumeClaim:
-            claimName: beszel-hub-data
         - name: tmp
           emptyDir: {}

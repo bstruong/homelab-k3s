@@ -22,6 +22,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000

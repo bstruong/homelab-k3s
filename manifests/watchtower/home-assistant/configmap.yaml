@@ -1,0 +1,37 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: home-assistant-config
+  namespace: home
+  labels:
+    app.kubernetes.io/name: home-assistant
+data:
+  # Seeded on first start only (see the init container) — after that, Home
+  # Assistant owns this file and edits from the UI persist.
+  #
+  # The http: block is not optional here. Behind Traefik every request arrives
+  # from a pod IP, so without use_x_forwarded_for Home Assistant sees one
+  # client address for everyone and its login rate-limiting misfires.
+  configuration.yaml: |
+    default_config:
+
+    http:
+      use_x_forwarded_for: true
+      trusted_proxies:
+        # k3s default pod CIDR — where Traefik's requests come from.
+        - 10.42.0.0/16
+      ip_ban_enabled: true
+      login_attempts_threshold: 5
+
+    homeassistant:
+      external_url: "https://home.watchtower.local"
+
+    # Keep the default UI-managed config working.
+    automation: !include automations.yaml
+    script: !include scripts.yaml
+    scene: !include scenes.yaml
+
+  automations.yaml: "[]\n"
+  scripts.yaml: "{}\n"
+  scenes.yaml: "[]\n"

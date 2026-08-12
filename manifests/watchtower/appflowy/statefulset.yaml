@@ -21,6 +21,7 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
         # uid/gid of the postgres user inside the image.

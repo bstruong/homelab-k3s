@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+#
+# Blocks commits that would publish a credential. Installed by
+# scripts/install-hooks.sh. Bypass with `git commit --no-verify` only if you
+# are certain — this repository is public.
+
+set -uo pipefail
+
+RED=$'\033[0;31m'; YELLOW=$'\033[0;33m'; NC=$'\033[0m'
+problems=0
+
+report() {
+  printf '%sBLOCKED%s %s\n' "${RED}" "${NC}" "$1" >&2
+  problems=$((problems + 1))
+}
+
+staged="$(git diff --cached --name-only --diff-filter=ACM)"
+[[ -z "${staged}" ]] && exit 0
+
+while IFS= read -r file; do
+  [[ -z "${file}" || ! -f "${file}" ]] && continue
+
+  case "${file}" in
+    *.yaml|*.yml)
+      content="$(git show ":${file}" 2>/dev/null || true)"
+
+      # A plaintext Secret. SealedSecrets are the supported way to commit one.
+      if grep -qE '^kind:[[:space:]]*Secret[[:space:]]*$' <<<"${content}"; then
+        report "${file}: plaintext 'kind: Secret'. Seal it: scripts/secrets.sh seal"
+      fi
+
+      # SealedSecrets legitimately contain base64 blobs under encryptedData;
+      # a bare data:/stringData: block in anything else is suspect.
+      if grep -qE '^[[:space:]]*stringData:' <<<"${content}"; then
+        report "${file}: 'stringData:' block — plaintext credentials"
+      fi
+      ;;
+    *.env|.env*)
+      report "${file}: env files are not committed to this repo"
+      ;;
+    *.pem|*.key|id_rsa*|id_ed25519*)
+      case "${file}" in
+        *.pub) ;;
+        *) report "${file}: private key material" ;;
+      esac
+      ;;
+  esac
+
+  # Known-shape credentials, wherever they appear. Lines that interpolate a
+  # value (printf specifiers, shell expansions, doc placeholders) are
+  # templates, not credentials — the substitution is what keeps the real value
+  # out of the file.
+  content="$(git show ":${file}" 2>/dev/null | grep -vE '%s|\$\{|\$\(|<[A-Za-z0-9 _-]+>' || true)"
+  if grep -qE 'tskey-(auth|api|client)-[A-Za-z0-9-]{10,}' <<<"${content}"; then
+    report "${file}: Tailscale auth key"
+  fi
+  if grep -qE 'postgres(ql)?://[^:[:space:]]+:[^@[:space:]]+@' <<<"${content}"; then
+    report "${file}: Postgres URL with an embedded password"
+  fi
+  if grep -qE 'BEGIN [A-Z ]*PRIVATE KEY' <<<"${content}"; then
+    report "${file}: private key block"
+  fi
+done <<<"${staged}"
+
+# Defer to gitleaks for everything else, if it is installed.
+if command -v gitleaks >/dev/null 2>&1; then
+  if ! gitleaks protect --staged --redact --no-banner -c .gitleaks.toml >/dev/null 2>&1; then
+    printf '%sBLOCKED%s gitleaks found a secret in the staged changes:\n' "${RED}" "${NC}" >&2
+    gitleaks protect --staged --redact --no-banner -c .gitleaks.toml >&2 || true
+    problems=$((problems + 1))
+  fi
+else
+  printf '%snote%s gitleaks not installed — only the built-in checks ran.\n' "${YELLOW}" "${NC}" >&2
+fi
+
+if [[ ${problems} -gt 0 ]]; then
+  printf '\n%s%d problem(s). Nothing was committed.%s\n' "${RED}" "${problems}" "${NC}" >&2
+  exit 1
+fi
+exit 0
