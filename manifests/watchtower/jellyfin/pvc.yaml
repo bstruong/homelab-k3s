@@ -40,8 +40,15 @@ spec:
     requests:
       storage: 20Gi
 ---
-# The media library itself is deliberately NOT under /mnt/appdata — appdata is
-# for application state. Point this at wherever the library actually lives.
+# The media library. Ideally this would live on its own disk, separate from
+# application state — but /mnt/appdata (the 1TB SSD) is currently the only large
+# filesystem on this node, and the root partition has under 3GB free. Putting the
+# library on / would re-trigger the disk-pressure taint that moved k3s's data
+# here in the first place.
+#
+# Point this at a dedicated mount if one is ever added; nothing else depends on
+# the path. `type: Directory` (not DirectoryOrCreate) is deliberate — a missing
+# library should fail the mount loudly rather than silently serving an empty one.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
@@ -55,7 +62,7 @@ spec:
   persistentVolumeReclaimPolicy: Retain
   storageClassName: appdata
   hostPath:
-    path: /mnt/media
+    path: /mnt/appdata/media
     type: Directory
   claimRef:
     namespace: media
