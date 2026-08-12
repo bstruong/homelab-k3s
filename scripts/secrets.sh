@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik tailscale vaultwarden crowdsec beszel paperless-ngx appflowy syncthing"
+ALL_APPS="traefik vaultwarden crowdsec beszel paperless-ngx appflowy syncthing"
 
 MODE=""
 SHOW=false
@@ -104,7 +104,7 @@ prompt() {
 
 app_namespace() {
   case "$1" in
-    traefik|tailscale) echo kube-system ;;
+    traefik)           echo kube-system ;;
     vaultwarden)       echo identity ;;
     crowdsec|beszel)   echo monitoring ;;
     paperless-ngx|appflowy) echo docs ;;
@@ -142,15 +142,6 @@ app_literals() {
       fi
       printf 'summary:Traefik dashboard      admin / %s\n' "${pw}"
       printf 'literal:users=%s\n' "${hash}"
-      ;;
-
-    tailscale)
-      local key
-      key="$(prompt 'Tailscale auth key, from https://login.tailscale.com/admin/settings/keys
-  Use a reusable, pre-authorized key. Tag it so the ACLs can target this node.')"
-      if [[ -n "${key}" ]]; then
-        printf 'literal:authkey=%s\n' "${key}"
-      fi
       ;;
 
     vaultwarden)
@@ -350,7 +341,6 @@ do_list() {
 App             Namespace    Secret                   Keys
 --------------- ------------ ------------------------ ------------------------------
 traefik         kube-system  traefik-dashboard-auth   users
-tailscale       kube-system  tailscale                authkey
 vaultwarden     identity     vaultwarden              admin-token
 crowdsec        monitoring   crowdsec                 bouncer-key, enroll-key
 beszel          monitoring   beszel-agent             hub-public-key

@@ -67,7 +67,6 @@ protection is that no workflow here ever writes a plaintext credential to disk.
 | App | Namespace | Secret | Keys | Blocks deploy? |
 | --- | --- | --- | --- | --- |
 | Traefik | `kube-system` | `traefik-dashboard-auth` | `users` | no |
-| Tailscale | `kube-system` | `tailscale` | `authkey` | **yes** |
 | Vaultwarden | `identity` | `vaultwarden` | `admin-token` | no |
 | CrowdSec | `monitoring` | `crowdsec` | `bouncer-key`, `enroll-key` | no |
 | Beszel | `monitoring` | `beszel-agent` | `hub-public-key` | no |
@@ -77,10 +76,14 @@ protection is that no workflow here ever writes a plaintext credential to disk.
 
 ### Required vs optional
 
-Only Tailscale's `authkey` aborts `deploy.sh`, because a subnet router with no
-auth key has nothing to do and cannot obtain one later on its own. Everything
-else is marked optional (a `?` suffix in `SECRET_SPECS`) so that one missing
-credential does not stop the other fourteen apps from deploying.
+Nothing aborts `deploy.sh` any more. Every key is marked optional (a `?` suffix
+in `SECRET_SPECS`), so one missing credential never stops the other apps from
+deploying — the affected pod sits in `CreateContainerConfigError` and the deploy
+reports it per app.
+
+Tailscale's `authkey` was the one required key, on the grounds that a subnet
+router with no auth key has nothing to do and cannot obtain one later. Tailscale
+was removed from the stack (see the README), and the requirement left with it.
 
 **Optional does not mean the app copes without it.** Every reference in these
 manifests is a plain `secretKeyRef` with no `optional: true`, so a pod whose
@@ -98,11 +101,6 @@ Notes on the ones with sharp edges:
 
 * **`traefik-dashboard-auth/users`** is an htpasswd line, not a password. Only
   the bcrypt hash is stored; the password is shown once by `--show`.
-* **`tailscale/authkey`** must be supplied by you — generate a reusable,
-  pre-authorized key at
-  <https://login.tailscale.com/admin/settings/keys>. Tag it so your ACLs can
-  target the node. Rotate it after the node has registered; the node key on the
-  PVC is what keeps it connected.
 * **`crowdsec/enroll-key`** may be empty. It only links the instance to
   app.crowdsec.net. The key must exist, but an empty value simply disables
   enrollment.
@@ -182,8 +180,8 @@ once at container start.
 
 ## If something leaks
 
-1. Rotate at the source first — revoke the Tailscale key in the admin console,
-   change the Postgres password, regenerate the Vaultwarden admin token. A
+1. Rotate at the source first — change the Postgres password, regenerate the
+   Vaultwarden admin token, revoke the key at whichever service issued it. A
    credential removed from git but still valid is still leaked.
 2. Rotate with `--force` as above and redeploy.
 3. Only then worry about the history. Rewriting it with `git filter-repo` is
