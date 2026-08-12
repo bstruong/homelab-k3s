@@ -1,0 +1,132 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homepage-config
+  namespace: home
+  labels:
+    app.kubernetes.io/name: homepage
+data:
+  settings.yaml: |
+    title: Watchtower
+    theme: dark
+    color: slate
+    headerStyle: clean
+    layout:
+      Infrastructure:
+        style: row
+        columns: 3
+      Identity:
+        style: row
+        columns: 3
+      Media & Documents:
+        style: row
+        columns: 3
+      Sync & Home:
+        style: row
+        columns: 4
+
+  # Widget API keys belong in the Secret, referenced as {{HOMEPAGE_VAR_*}}.
+  # Never inline a key here — this file is committed to a public repository.
+  services.yaml: |
+    - Infrastructure:
+        - Traefik:
+            href: https://traefik.watchtower.local/dashboard/
+            description: Ingress controller
+            namespace: kube-system
+            app: traefik
+        - AdGuard Home:
+            href: https://dns.watchtower.local
+            description: DNS and ad blocking
+            namespace: adguard
+            app: adguard-home
+        - Beszel:
+            href: https://beszel.watchtower.local
+            description: Host metrics
+            namespace: monitoring
+            app: beszel-hub
+        - Uptime Kuma:
+            href: https://status.watchtower.local
+            description: Uptime monitoring
+            namespace: monitoring
+            app: uptime-kuma
+
+    - Identity:
+        - Vaultwarden:
+            href: https://vault.watchtower.local
+            description: Password manager
+            namespace: identity
+            app: vaultwarden
+        - Pocket ID:
+            href: https://id.watchtower.local
+            description: OIDC provider
+            namespace: identity
+            app: pocket-id
+
+    - Media & Documents:
+        - Jellyfin:
+            href: https://jellyfin.watchtower.local
+            description: Media library
+            namespace: media
+            app: jellyfin
+        - Paperless-ngx:
+            href: https://paperless.watchtower.local
+            description: Document archive
+            namespace: docs
+            app: paperless-ngx
+        - AppFlowy:
+            href: https://appflowy.watchtower.local
+            description: Notes and docs
+            namespace: docs
+            app: appflowy-cloud
+
+    - Sync & Home:
+        - Syncthing:
+            href: https://syncthing.watchtower.local
+            description: File sync
+            namespace: sync
+            app: syncthing
+        - PairDrop:
+            href: https://drop.watchtower.local
+            description: Local file transfer
+            namespace: sync
+            app: pairdrop
+        - Home Assistant:
+            href: https://home.watchtower.local
+            description: Home automation
+            namespace: home
+            app: home-assistant
+
+  widgets.yaml: |
+    - resources:
+        backend: kubernetes
+        expanded: true
+        cpu: true
+        memory: true
+    - kubernetes:
+        cluster:
+          show: true
+          cpu: true
+          memory: true
+          showLabel: true
+          label: watchtower
+        nodes:
+          show: false
+    - search:
+        provider: duckduckgo
+        target: _blank
+
+  bookmarks.yaml: |
+    - Homelab:
+        - Repository:
+            - abbr: GH
+              href: https://github.com/bstruong/homelab-k3s
+        - Tailscale:
+            - abbr: TS
+              href: https://login.tailscale.com/admin/machines
+
+  kubernetes.yaml: |
+    mode: cluster
+
+  docker.yaml: |
+    # Intentionally empty — everything runs in k3s, not Docker.

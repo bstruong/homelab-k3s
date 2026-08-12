@@ -1,0 +1,106 @@
+---
+# Tailscale subnet router: advertises the LAN and the cluster's service CIDR
+# to the tailnet so the whole stack is reachable remotely without opening a
+# port on the router.
+#
+# ROOT AND NET_ADMIN ARE REQUIRED HERE. Tailscale creates a TUN device and
+# programs routes in the host's network namespace; that cannot be done
+# unprivileged. It is the only workload in this repo that runs as uid 0 for
+# networking reasons, and it is still not `privileged: true` — it gets exactly
+# NET_ADMIN, and /dev/net/tun, and nothing else.
+#
+# The userspace alternative (TS_USERSPACE=true) drops the root requirement but
+# cannot route for other hosts, which defeats the point of a subnet router.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tailscale
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/name: tailscale
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tailscale
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tailscale
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: tailscale
+          image: tailscale/tailscale:v1.78.1
+          env:
+            - name: TS_AUTHKEY
+              valueFrom:
+                secretKeyRef:
+                  name: tailscale
+                  key: authkey
+            - name: TS_HOSTNAME
+              value: watchtower
+            - name: TS_STATE_DIR
+              value: /var/lib/tailscale
+            # Explicitly empty: state lives on the PVC, not in a k8s Secret,
+            # so the pod needs no API access at all.
+            - name: TS_KUBE_SECRET
+              value: ""
+            - name: TS_USERSPACE
+              value: "false"
+            # Adjust to your LAN. The second range is k3s's default service
+            # CIDR, which makes ClusterIPs reachable over the tailnet.
+            - name: TS_ROUTES
+              value: 192.168.1.0/24,10.43.0.0/16
+            - name: TS_EXTRA_ARGS
+              value: --accept-dns=false
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+              add: ["NET_ADMIN"]
+          volumeMounts:
+            - name: state
+              mountPath: /var/lib/tailscale
+            - name: dev-net-tun
+              mountPath: /dev/net/tun
+            - name: tmp
+              mountPath: /tmp
+            - name: run
+              mountPath: /var/run/tailscale
+          livenessProbe:
+            exec:
+              command: ["tailscale", "status", "--peers=false"]
+            initialDelaySeconds: 30
+            periodSeconds: 60
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: state
+          persistentVolumeClaim:
+            claimName: tailscale-state
+        - name: dev-net-tun
+          hostPath:
+            path: /dev/net/tun
+            type: CharDevice
+        - name: tmp
+          emptyDir: {}
+        - name: run
+          emptyDir: {}

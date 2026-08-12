@@ -1,0 +1,91 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: syncthing
+  namespace: sync
+  labels:
+    app.kubernetes.io/name: syncthing
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: syncthing
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: syncthing
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: syncthing
+          image: syncthing/syncthing:1.28.1
+          env:
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            # Bind the GUI to all interfaces so the Service can reach it;
+            # access is controlled by the ingress and the API key below.
+            - name: STGUIADDRESS
+              value: 0.0.0.0:8384
+            - name: STNODEFAULTFOLDER
+              value: "true"
+            - name: STGUIAPIKEY
+              valueFrom:
+                secretKeyRef:
+                  name: syncthing
+                  key: gui-apikey
+          ports:
+            - name: gui
+              containerPort: 8384
+            - name: sync-tcp
+              containerPort: 22000
+              protocol: TCP
+            - name: sync-udp
+              containerPort: 22000
+              protocol: UDP
+            - name: discovery
+              containerPort: 21027
+              protocol: UDP
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/syncthing
+          livenessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /rest/noauth/health
+              port: gui
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: syncthing-data

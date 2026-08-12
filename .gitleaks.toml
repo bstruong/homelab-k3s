@@ -1,0 +1,46 @@
+# gitleaks config for this repo. Run `gitleaks detect` locally, or let the
+# pre-commit hook from scripts/install-hooks.sh call it automatically.
+title = "homelab-k3s"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "k8s-secret-data"
+description = "Plaintext Kubernetes Secret data (use a SealedSecret instead)"
+regex = '''(?i)^\s*(stringData|data):\s*$'''
+path = '''.*\.ya?ml$'''
+keywords = ["stringdata"]
+
+[[rules]]
+id = "tailscale-auth-key"
+description = "Tailscale auth key"
+regex = '''tskey-(auth|api|client)-[A-Za-z0-9\-]{10,}'''
+keywords = ["tskey-"]
+
+[[rules]]
+id = "vaultwarden-admin-token"
+description = "Vaultwarden ADMIN_TOKEN assigned a literal value"
+regex = '''(?i)ADMIN_TOKEN\s*[:=]\s*["']?[A-Za-z0-9+/$._-]{16,}'''
+keywords = ["admin_token"]
+
+[[rules]]
+id = "postgres-url-with-password"
+description = "Postgres connection string containing a password"
+regex = '''postgres(ql)?://[^:\s]+:[^@\s]+@'''
+keywords = ["postgres://", "postgresql://"]
+
+[allowlist]
+description = "Documentation placeholders and encrypted material"
+regexes = [
+  '''<[A-Za-z0-9 _-]+>''',           # <your-key-here> style placeholders
+  '''ssh-ed25519 AAAA\.\.\.''',      # truncated example key in docs
+  '''\$\{[A-Za-z_][A-Za-z0-9_]*\}''',# shell variable references
+  '''\$\(gen [0-9]+\)''',            # generator calls in scripts/secrets.sh
+  '''postgres://postgres:%s@''',     # printf template in scripts/secrets.sh
+  '''password="\$\(''',              # command substitution
+]
+paths = [
+  '''manifests/.*/sealedsecret\.yaml$''',  # encrypted by design
+  '''\.gitleaks\.toml$''',                 # this file's own patterns
+]

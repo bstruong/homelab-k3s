@@ -1,0 +1,23 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: crowdsec-acquis
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: crowdsec
+data:
+  # What CrowdSec reads. k3s writes every container's stdout under
+  # /var/log/pods/<namespace>_<pod>_<uid>/<container>/*.log, so pointing at
+  # Traefik's access log means parsing that path — there is no separate log
+  # file to mount.
+  acquis.yaml: |
+    filenames:
+      - /var/log/pods/kube-system_traefik-*/traefik/*.log
+    labels:
+      type: traefik
+    ---
+    filenames:
+      - /var/log/pods/identity_vaultwarden-*/vaultwarden/*.log
+    labels:
+      type: vaultwarden

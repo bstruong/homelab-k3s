@@ -1,0 +1,70 @@
+---
+# k3s installs Traefik from a bundled Helm chart. This HelmChartConfig layers
+# values onto that install rather than replacing it — do not `kubectl apply` a
+# separate Traefik deployment alongside it.
+#
+# The name and namespace must be exactly this for k3s to pick the values up.
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    deployment:
+      replicas: 1
+
+    # Traefik is the only ingress path into the cluster, so it gets a modest
+    # floor and a ceiling well above normal homelab traffic.
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+
+    ports:
+      web:
+        exposedPort: 80
+      websecure:
+        exposedPort: 443
+        tls:
+          enabled: true
+
+    # Each app declares its own routes; the dashboard route lives in
+    # ingress.yaml alongside its BasicAuth middleware.
+    ingressRoute:
+      dashboard:
+        enabled: false
+
+    providers:
+      kubernetesCRD:
+        enabled: true
+        # Routes may only reference middlewares and services in their own
+        # namespace. Every IngressRoute in this repo is namespace-local.
+        allowCrossNamespace: false
+        allowExternalNameServices: false
+      kubernetesIngress:
+        enabled: true
+
+    logs:
+      general:
+        level: INFO
+      access:
+        enabled: true
+        # CrowdSec parses these from the pod log.
+        format: json
+
+    globalArguments:
+      - "--global.checknewversion=false"
+      - "--global.sendanonymoususage=false"
+
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]

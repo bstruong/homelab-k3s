@@ -1,0 +1,42 @@
+---
+# WebRTC needs a secure context in the browser, so PairDrop is HTTPS-only.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: pairdrop-redirect-https
+  namespace: sync
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pairdrop-http
+  namespace: sync
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`drop.watchtower.local`)
+      middlewares:
+        - name: pairdrop-redirect-https
+      services:
+        - name: pairdrop
+          port: 3000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: pairdrop-https
+  namespace: sync
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`drop.watchtower.local`)
+      services:
+        - name: pairdrop
+          port: 3000
+  tls: {}

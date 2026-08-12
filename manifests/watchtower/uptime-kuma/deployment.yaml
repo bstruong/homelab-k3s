@@ -1,24 +1,22 @@
 ---
-# Beszel Hub — the web UI and metrics store. It talks to agents over SSH using
-# a keypair it generates on first start (see docs/SECRETS.md).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: beszel-hub
+  name: uptime-kuma
   namespace: monitoring
   labels:
-    app.kubernetes.io/name: beszel-hub
+    app.kubernetes.io/name: uptime-kuma
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app.kubernetes.io/name: beszel-hub
+      app.kubernetes.io/name: uptime-kuma
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: beszel-hub
+        app.kubernetes.io/name: uptime-kuma
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
@@ -31,32 +29,37 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       containers:
-        - name: beszel-hub
-          image: henrygd/beszel:0.9.1
+        - name: uptime-kuma
+          image: louislam/uptime-kuma:1.23.16
+          env:
+            - name: UPTIME_KUMA_PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: production
           ports:
             - name: http
-              containerPort: 8090
+              containerPort: 3001
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+              # ICMP ping monitors need raw sockets. Drop this if you only
+              # ever use HTTP/TCP/DNS monitors.
+              add: ["NET_RAW"]
           volumeMounts:
             - name: data
-              mountPath: /beszel_data
-            - name: tmp
-              mountPath: /tmp
+              mountPath: /app/data
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /
               port: http
-            initialDelaySeconds: 20
+            initialDelaySeconds: 60
             periodSeconds: 30
           readinessProbe:
             httpGet:
-              path: /api/health
+              path: /
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 20
             periodSeconds: 10
           resources:
             requests:
@@ -68,6 +71,4 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: beszel-hub-data
-        - name: tmp
-          emptyDir: {}
+            claimName: uptime-kuma-data
