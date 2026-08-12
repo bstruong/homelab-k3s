@@ -32,7 +32,13 @@ spec:
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
-      automountServiceAccountToken: false
+      # containerboot initializes a Kubernetes client purely because
+      # KUBERNETES_SERVICE_HOST is set, and fails at startup if the
+      # ServiceAccount files are absent. The token is mounted for that reason
+      # alone — the ServiceAccount in rbac.yaml is bound to no role, so the
+      # token grants nothing beyond identifying the namespace.
+      serviceAccountName: tailscale
+      automountServiceAccountToken: true
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       securityContext:
