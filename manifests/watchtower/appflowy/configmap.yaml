@@ -8,6 +8,11 @@ metadata:
     app.kubernetes.io/name: appflowy
 data:
   APPFLOWY_ENVIRONMENT: production
+  # Required — appflowy-cloud refuses to start without it, with
+  # "Failed to read configuration: APPFLOWY_WEB_URL has not been set". It is the
+  # externally reachable base URL, so it must match the IngressRoute host rather
+  # than any in-cluster Service name.
+  APPFLOWY_WEB_URL: https://appflowy.watchtower.local
   APPFLOWY_REDIS_URI: redis://appflowy-redis:6379
   APPFLOWY_GOTRUE_BASE_URL: http://appflowy-gotrue:9999
   APPFLOWY_GOTRUE_JWT_EXP: "7200"
