@@ -38,7 +38,7 @@ while IFS= read -r file; do
     *.env|.env*)
       report "${file}: env files are not committed to this repo"
       ;;
-    *.pem|*.key|id_rsa*|id_ed25519*)
+    *.pem|*.key|*backup-key*|*sealed-secrets-key*|id_rsa*|id_ed25519*)
       case "${file}" in
         *.pub) ;;
         *) report "${file}: private key material" ;;
