@@ -23,11 +23,20 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
+      # ROOT IS REQUIRED HERE, and capabilities cannot substitute for it.
+      #
+      # On a first launch (no AdGuardHome.yaml yet) AdGuard calls its
+      # admin-rights check, which on Linux is a plain `os.Getuid() == 0` test.
+      # It does not probe for CAP_NET_BIND_SERVICE or try the bind and fall
+      # back — so granting capabilities has no effect on it, and running as
+      # uid 1000 exits with "You must run it as Administrator."
+      #
+      # NET_BIND_SERVICE is kept because it is still what allows :53 once the
+      # process drops nothing; every other capability stays dropped.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        fsGroup: 1000
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
         seccompProfile:
           type: RuntimeDefault
       containers:

@@ -130,13 +130,21 @@ The exceptions, each documented at the top of its manifest:
 
 | Workload | Deviation | Why |
 | --- | --- | --- |
-| AdGuard Home | adds `NET_BIND_SERVICE` | binding `:53` |
-| Uptime Kuma | adds `NET_RAW` | ICMP ping monitors |
+| AdGuard Home | root + `NET_BIND_SERVICE` | its first-launch check is a bare `os.Getuid() == 0` test, which no capability can satisfy |
+| Uptime Kuma | adds `NET_RAW`; root init container | ICMP ping monitors; the init container only chowns the data volume |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
-| Tailscale | root + `NET_ADMIN` + `/dev/net/tun` | creates a TUN device and programs host routes; userspace mode cannot route for other hosts |
+| Tailscale | root + `NET_ADMIN` + `/dev/net/tun`; mounts a token | creates a TUN device and programs host routes; userspace mode cannot route for other hosts. Its ServiceAccount is bound to no role — the token exists only because containerboot refuses to start without it |
 | CrowdSec | root, read-only host log mounts | `/var/log/pods` is root-owned mode 0640, and reading it is the entire job |
 | Home Assistant | root | s6-overlay has no supported non-root mode |
 | Homepage | mounts a token | its widgets read workload status; the ClusterRole is read-only and lists no secrets |
+
+**Host volume ownership.** `fsGroup` does not fix ownership on `hostPath`
+volumes — kubelet's recursive ownership pass skips them, so a directory created
+by `DirectoryOrCreate` stays `root:root` and every non-root app fails to write
+to it. The fix is the `chown` step that `deploy.sh` prints for the node; run it
+before the first deploy. Uptime Kuma additionally carries an init container
+because its entrypoint chowns the volume itself and errors out rather than
+degrading.
 
 **Resources.** Every container sets both requests and limits.
 
