@@ -61,8 +61,9 @@ and sealed-secrets CRDs are installed — *before* applying anything. Then it
 waits on each rollout and reports pod, PVC, IngressRoute and warning-event
 state.
 
-Only Tailscale's auth key blocks a deploy; every other credential is optional,
-so a missing one warns and the remaining apps still go out. That is a
+No credential blocks a deploy any more: every remaining one is optional, so a
+missing one warns and the rest of the stack still goes out. (Tailscale's auth
+key used to be the sole exception, and it left with Tailscale.) That is a
 convenience, not self-healing — those pods stay in
 `CreateContainerConfigError` until the Secret exists, and the warning says so
 per app. See [docs/SECRETS.md](docs/SECRETS.md#required-vs-optional).
@@ -77,7 +78,6 @@ before its agent's credential can exist.
 | App | Namespace | Host | Notes |
 | --- | --- | --- | --- |
 | Traefik | `kube-system` | `traefik.watchtower.local` | k3s's bundled install, tuned via `HelmChartConfig`; dashboard behind BasicAuth |
-| Tailscale | `kube-system` | — | Subnet router; the only workload that needs root for networking |
 | AdGuard Home | `adguard` | `dns.watchtower.local` | DNS on :53 via a LoadBalancer Service |
 | Pocket ID | `identity` | `id.watchtower.local` | Passkey-only OIDC provider; HTTPS-only |
 | Vaultwarden | `identity` | `vault.watchtower.local` | Signups closed; HTTP redirects to HTTPS |
@@ -101,8 +101,9 @@ Watchtower node. Each app gets a statically defined `PersistentVolume`
 (`hostPath`, `storageClassName: appdata`) bound one-to-one to its PVC through
 `claimRef`, so a PVC can never bind to another app's data. Reclaim policy is
 `Retain` — deleting a PVC never deletes data on disk. `deploy.sh` prints the
-`mkdir`/`chown` commands the node needs, including the three apps whose
-directories are not owned by uid 1000.
+`mkdir`/`chown` commands the node needs, including the four directories not
+owned by uid 1000: AdGuard Home, CrowdSec and Home Assistant are `0:0`, and
+AppFlowy's Postgres is `999:999`.
 
 **Node pinning.** The volumes are host paths, so every workload carries
 `nodeSelector: kubernetes.io/hostname: watchtower` and every PV a matching
@@ -133,7 +134,6 @@ The exceptions, each documented at the top of its manifest:
 | AdGuard Home | root + `NET_BIND_SERVICE` | its first-launch check is a bare `os.Getuid() == 0` test, which no capability can satisfy |
 | Uptime Kuma | starts as root, adds `CHOWN`, `SETUID`, `SETGID`, `NET_RAW` | its entrypoint chowns the data volume and then drops to uid 1000 via `setpriv`; the app process itself is unprivileged |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
-| Tailscale | root + `NET_ADMIN` + `/dev/net/tun`; mounts a token | creates a TUN device and programs host routes; userspace mode cannot route for other hosts. Its ServiceAccount is bound to no role — the token exists only because containerboot refuses to start without it |
 | CrowdSec | root, read-only host log mounts | `/var/log/pods` is root-owned mode 0640, and reading it is the entire job |
 | Home Assistant | root | s6-overlay has no supported non-root mode |
 | Homepage | mounts a token | its widgets read workload status; the ClusterRole is read-only and lists no secrets |
@@ -148,9 +148,9 @@ end are not optional.
 Note that "runs as root" does not mean "can write anywhere." Every container
 here drops `ALL` capabilities, so none has `CAP_DAC_OVERRIDE`, and a uid 0
 process without it gets no permission bypass: against a 1000-owned `0755`
-directory it can read and traverse but not create. AdGuard Home, CrowdSec, Home
-Assistant and Tailscale all run as uid 0 and therefore need their data
-directories owned by `0:0`, not `1000:1000`.
+directory it can read and traverse but not create. AdGuard Home, CrowdSec and
+Home Assistant all run as uid 0 and therefore need their data directories owned
+by `0:0`, not `1000:1000`.
 
 Uptime Kuma is the inverse case: it starts as root and drops to uid 1000 in its
 own entrypoint, so its directory stays `1000:1000` and it needs `CHOWN`,
@@ -189,5 +189,26 @@ register the Traefik bouncer plugin with the `bouncer-key` from its Secret.
 not find devices. If you depend on those integrations, enable it — the manifest
 says exactly what to change.
 
-**Tailscale**'s advertised routes (`TS_ROUTES`) default to `192.168.1.0/24` plus
-k3s's service CIDR. Set them to your actual LAN.
+**Tailscale is deliberately not in this stack.** It was removed, and re-adding
+it as a workload will not work. Watchtower already runs `tailscaled` as a host
+systemd service, joined to a self-hosted Headscale instance, and a Tailscale
+pod wants the same thing the host process already holds: exclusive use of the
+`tailscale0` TUN interface. The pod loses that race every time and crash-loops
+indefinitely on
+
+```
+wgengine.NewUserspaceEngine(tun "tailscale0") error: tstun.New("tailscale0"): device or resource busy
+```
+
+This is not fixable from inside Kubernetes. `TS_USERSPACE=true` avoids the TUN
+conflict but cannot route for other hosts, which is the entire point of a subnet
+router, and two tailscaled instances on one machine cannot share the interface
+whatever their configuration. If you want the cluster's service CIDR advertised
+to the tailnet, advertise it from the **host** daemon instead:
+
+```sh
+sudo tailscale up --advertise-routes=192.168.1.0/24,10.43.0.0/16
+```
+
+That gets the same reachability with one daemon, one machine identity in
+Headscale, and no interface contention.

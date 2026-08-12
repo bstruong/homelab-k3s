@@ -26,10 +26,10 @@ DRY_RUN=false
 VALIDATE_ONLY=false
 ONLY_APP=""
 
-# The app namespaces. kube-system also hosts Traefik and Tailscale, but it is
-# handled separately so this script never waits on k3s's own components.
+# The app namespaces. Traefik also lives in kube-system, but it is k3s's own
+# bundled install rather than something this repo deploys, so it is never waited
+# on here. This repo now owns no kube-system workloads at all.
 NAMESPACES=(adguard identity monitoring media docs sync home)
-KUBE_SYSTEM_WORKLOADS=(deployment/tailscale)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -46,7 +46,6 @@ KUBE_SYSTEM_WORKLOADS=(deployment/tailscale)
 # consequence_for_app() for what each one actually costs.
 SECRET_SPECS=(
   "traefik|kube-system|traefik-dashboard-auth|users?"
-  "tailscale|kube-system|tailscale|authkey"
   "vaultwarden|identity|vaultwarden|admin-token?"
   "crowdsec|monitoring|crowdsec|bouncer-key?,enroll-key?"
   "beszel|monitoring|beszel-agent|hub-public-key?"
@@ -143,7 +142,7 @@ check_appdata() {
 
   sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,jellyfin}
   sudo mkdir -p ${APPDATA_ROOT}/{paperless-ngx,beszel,crowdsec,uptime-kuma}
-  sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,tailscale,media}
+  sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,media}
   sudo mkdir -p ${APPDATA_ROOT}/appflowy/{postgres,minio}
 
   # Apps running as uid 1000. Each directory is named explicitly on purpose:
@@ -164,7 +163,6 @@ check_appdata() {
   sudo chown -R 0:0       ${APPDATA_ROOT}/adguard-home       # its first-launch check is a bare uid==0 test
   sudo chown -R 0:0       ${APPDATA_ROOT}/crowdsec           # crowdsec runs as root
   sudo chown -R 0:0       ${APPDATA_ROOT}/home-assistant     # s6-overlay needs root
-  sudo chown -R 0:0       ${APPDATA_ROOT}/tailscale          # tailscaled runs as root
 
 EOF
 }
@@ -363,7 +361,7 @@ wait_for_rollouts() {
   fi
   info "Waiting for rollouts (timeout ${ROLLOUT_TIMEOUT} each)"
 
-  local ns kind obj target rc=0
+  local ns kind obj rc=0
   for ns in "${NAMESPACES[@]}"; do
     kubectl get ns "${ns}" >/dev/null 2>&1 || continue
     for kind in deployment statefulset daemonset; do
@@ -381,16 +379,8 @@ wait_for_rollouts() {
     done
   done
 
-  # Only this repo's kube-system workloads, never k3s's own.
-  for target in "${KUBE_SYSTEM_WORKLOADS[@]}"; do
-    kubectl -n kube-system get "${target}" >/dev/null 2>&1 || continue
-    if kubectl -n kube-system rollout status "${target}" --timeout="${ROLLOUT_TIMEOUT}" >/dev/null 2>&1; then
-      ok "kube-system/${target}"
-    else
-      fail "kube-system/${target} did not become ready"
-      rc=1
-    fi
-  done
+  # Nothing in kube-system is waited on: Traefik there is k3s's own bundled
+  # install, not this repo's. Tailscale used to be the one exception.
 
   return ${rc}
 }
