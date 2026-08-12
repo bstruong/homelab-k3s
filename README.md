@@ -131,7 +131,7 @@ The exceptions, each documented at the top of its manifest:
 | Workload | Deviation | Why |
 | --- | --- | --- |
 | AdGuard Home | root + `NET_BIND_SERVICE` | its first-launch check is a bare `os.Getuid() == 0` test, which no capability can satisfy |
-| Uptime Kuma | adds `NET_RAW`; root init container | ICMP ping monitors; the init container only chowns the data volume |
+| Uptime Kuma | starts as root, adds `CHOWN`, `SETUID`, `SETGID`, `NET_RAW` | its entrypoint chowns the data volume and then drops to uid 1000 via `setpriv`; the app process itself is unprivileged |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
 | Tailscale | root + `NET_ADMIN` + `/dev/net/tun`; mounts a token | creates a TUN device and programs host routes; userspace mode cannot route for other hosts. Its ServiceAccount is bound to no role — the token exists only because containerboot refuses to start without it |
 | CrowdSec | root, read-only host log mounts | `/var/log/pods` is root-owned mode 0640, and reading it is the entire job |
