@@ -143,10 +143,25 @@ check_appdata() {
 
   sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,jellyfin}
   sudo mkdir -p ${APPDATA_ROOT}/{paperless-ngx,beszel,crowdsec,uptime-kuma}
-  sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,tailscale}
+  sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,tailscale,media}
   sudo mkdir -p ${APPDATA_ROOT}/appflowy/{postgres,minio}
-  sudo chown -R 1000:1000 ${APPDATA_ROOT}
+
+  # Apps running as uid 1000. Each directory is named explicitly on purpose:
+  # a recursive chown of ${APPDATA_ROOT} itself would also rewrite k3s's
+  # relocated data directory, which lives under this root and must stay
+  # root-owned.
+  sudo chown -R 1000:1000 ${APPDATA_ROOT}/{vaultwarden,pocket-id,jellyfin,media}
+  sudo chown -R 1000:1000 ${APPDATA_ROOT}/{paperless-ngx,beszel,uptime-kuma,syncthing}
+  sudo chown -R 1000:1000 ${APPDATA_ROOT}/appflowy/minio
   sudo chown -R 999:999   ${APPDATA_ROOT}/appflowy/postgres  # postgres runs as uid 999
+
+  # Apps whose container runs as uid 0. These MUST be root-owned. Every
+  # container here drops ALL capabilities, so none of them holds
+  # CAP_DAC_OVERRIDE — and without it uid 0 gets no permission bypass at all.
+  # Against a 1000-owned 0755 directory, "other" has only r-x, so a root
+  # process cannot create anything inside it. Getting this wrong looks like
+  # a bare "permission denied" from an app you believe is running as root.
+  sudo chown -R 0:0       ${APPDATA_ROOT}/adguard-home       # its first-launch check is a bare uid==0 test
   sudo chown -R 0:0       ${APPDATA_ROOT}/crowdsec           # crowdsec runs as root
   sudo chown -R 0:0       ${APPDATA_ROOT}/home-assistant     # s6-overlay needs root
   sudo chown -R 0:0       ${APPDATA_ROOT}/tailscale          # tailscaled runs as root
