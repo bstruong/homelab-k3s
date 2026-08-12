@@ -48,11 +48,24 @@ spec:
                 secretKeyRef:
                   name: appflowy
                   key: gotrue-admin-password
-            - name: DATABASE_URL
+            # GoTrue creates its tables in the `auth` schema but queries them
+            # unqualified, so without search_path it migrates successfully and
+            # then dies on the first real query:
+            #
+            #   relation "identities" does not exist (SQLSTATE 42P01)
+            #
+            # The same database-url is shared with appflowy-cloud, which needs
+            # the default (public) search_path — so the parameter is appended
+            # here rather than baked into the secret. Kubernetes expands $(VAR)
+            # against an env var defined earlier in this list, which keeps the
+            # credential itself out of this file.
+            - name: DATABASE_URL_BASE
               valueFrom:
                 secretKeyRef:
                   name: appflowy
                   key: database-url
+            - name: DATABASE_URL
+              value: "$(DATABASE_URL_BASE)?search_path=auth"
           ports:
             - name: http
               containerPort: 9999
