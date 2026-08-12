@@ -1,0 +1,7 @@
+# Never commit rendered secrets or kubeconfigs.
+*.secret.yaml
+secrets/
+kubeconfig
+*.kubeconfig
+.env
+.DS_Store

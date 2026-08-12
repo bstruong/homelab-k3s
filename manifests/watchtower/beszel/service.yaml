@@ -1,0 +1,34 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beszel-hub
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: beszel-hub
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: beszel-hub
+  ports:
+    - name: http
+      port: 8090
+      targetPort: http
+---
+# The agent is on hostNetwork, so this Service exists mainly for discovery and
+# for anything in-cluster that wants to reach it by name.
+apiVersion: v1
+kind: Service
+metadata:
+  name: beszel-agent
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: beszel-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: beszel-agent
+  ports:
+    - name: agent
+      port: 45876
+      targetPort: agent

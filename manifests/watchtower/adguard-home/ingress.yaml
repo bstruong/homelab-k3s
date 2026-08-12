@@ -1,0 +1,29 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: adguard-home-http
+  namespace: adguard
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`dns.watchtower.local`)
+      services:
+        - name: adguard-home
+          port: 3000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: adguard-home-https
+  namespace: adguard
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`dns.watchtower.local`)
+      services:
+        - name: adguard-home
+          port: 3000
+  tls: {}

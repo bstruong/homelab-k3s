@@ -1,0 +1,138 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: paperless-ngx
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: paperless-ngx
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-ngx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: paperless-ngx
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # The image's entrypoint expects to own its data directories. It runs
+        # unprivileged here, so create the layout up front with the right
+        # ownership (fsGroup handles the group bit) instead of letting the
+        # entrypoint attempt a chown it cannot perform.
+        - name: init-dirs
+          image: busybox:1.37
+          command: ["sh", "-c", "mkdir -p /data /media /consume /export && echo ok"]
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              subPath: data
+            - name: data
+              mountPath: /media
+              subPath: media
+            - name: data
+              mountPath: /consume
+              subPath: consume
+            - name: data
+              mountPath: /export
+              subPath: export
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: paperless-ngx
+          image: ghcr.io/paperless-ngx/paperless-ngx:2.13.5
+          envFrom:
+            - configMapRef:
+                name: paperless-ngx
+          env:
+            - name: PAPERLESS_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-ngx
+                  key: secret-key
+            - name: PAPERLESS_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-ngx
+                  key: admin-user
+            - name: PAPERLESS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-ngx
+                  key: admin-password
+          ports:
+            - name: http
+              containerPort: 8000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+              subPath: data
+            - name: data
+              mountPath: /media
+              subPath: media
+            - name: data
+              mountPath: /consume
+              subPath: consume
+            - name: data
+              mountPath: /export
+              subPath: export
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /accounts/login/
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            # OCR model warm-up on a cold start is slow; allow up to 5 minutes.
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /accounts/login/
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /accounts/login/
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              # One worker, one thread — a single core is the ceiling by design.
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: paperless-data
+        - name: tmp
+          emptyDir: {}

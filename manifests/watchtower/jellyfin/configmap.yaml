@@ -1,0 +1,42 @@
+---
+# Direct Play posture, part 1 of 2.
+#
+# This seeds Jellyfin's encoding.xml on first start: no hardware acceleration,
+# no throttling, no subtitle burn-in, and a single-threaded software encoder so
+# that any accidental transcode is obvious rather than silently absorbing the
+# whole CPU.
+#
+# Part 2 is per-USER and cannot be expressed in a manifest — Jellyfin stores it
+# in library.db. After the first login, in Dashboard -> Users -> <user>, clear:
+#   * Allow audio playback that requires transcoding
+#   * Allow video playback that requires transcoding
+#   * Allow video playback that requires re-muxing
+# See docs/SECRETS.md for the full post-install checklist.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jellyfin-encoding
+  namespace: media
+  labels:
+    app.kubernetes.io/name: jellyfin
+data:
+  encoding.xml: |
+    <?xml version="1.0" encoding="utf-8"?>
+    <EncodingOptions xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+      <EncodingThreadCount>1</EncodingThreadCount>
+      <HardwareAccelerationType>none</HardwareAccelerationType>
+      <EnableHardwareEncoding>false</EnableHardwareEncoding>
+      <EnableThrottling>false</EnableThrottling>
+      <EnableSegmentDeletion>false</EnableSegmentDeletion>
+      <EnableTonemapping>false</EnableTonemapping>
+      <EnableVppTonemapping>false</EnableVppTonemapping>
+      <EnableDecodingColorDepth10Hevc>false</EnableDecodingColorDepth10Hevc>
+      <EnableDecodingColorDepth10Vp9>false</EnableDecodingColorDepth10Vp9>
+      <AllowHevcEncoding>false</AllowHevcEncoding>
+      <AllowAv1Encoding>false</AllowAv1Encoding>
+      <EnableSubtitleExtraction>false</EnableSubtitleExtraction>
+      <DeinterlaceMethod>yadif</DeinterlaceMethod>
+      <H264Crf>23</H264Crf>
+      <H265Crf>28</H265Crf>
+      <EncoderPreset>veryfast</EncoderPreset>
+    </EncodingOptions>

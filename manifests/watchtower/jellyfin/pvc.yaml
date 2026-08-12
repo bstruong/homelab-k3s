@@ -1,0 +1,84 @@
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-config
+  labels:
+    app.kubernetes.io/name: jellyfin
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/jellyfin
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: media
+    name: jellyfin-config
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-config
+  namespace: media
+  labels:
+    app.kubernetes.io/name: jellyfin
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: jellyfin-config
+  resources:
+    requests:
+      storage: 20Gi
+---
+# The media library itself is deliberately NOT under /mnt/appdata — appdata is
+# for application state. Point this at wherever the library actually lives.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: jellyfin-media
+  labels:
+    app.kubernetes.io/name: jellyfin
+spec:
+  capacity:
+    storage: 1Ti
+  accessModes: ["ReadOnlyMany"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/media
+    type: Directory
+  claimRef:
+    namespace: media
+    name: jellyfin-media
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: jellyfin-media
+  namespace: media
+  labels:
+    app.kubernetes.io/name: jellyfin
+spec:
+  accessModes: ["ReadOnlyMany"]
+  storageClassName: appdata
+  volumeName: jellyfin-media
+  resources:
+    requests:
+      storage: 1Ti

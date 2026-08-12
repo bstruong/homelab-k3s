@@ -1,0 +1,103 @@
+---
+# Beszel Agent — reports node metrics to the hub.
+#
+# It runs as a DaemonSet so any node you later add to the cluster is monitored
+# automatically; today the nodeSelector pins it to Watchtower.
+#
+# The agent collects metrics through gopsutil, which reads /proc, /sys and
+# /etc. Those are mounted read-only from the host under /host and pointed at
+# via HOST_PROC/HOST_SYS/HOST_ETC, which is what lets the agent stay
+# unprivileged and non-root instead of needing the host namespaces.
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: beszel-agent
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: beszel-agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beszel-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beszel-agent
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      # The hub reaches the agent on the node's own address.
+      hostNetwork: true
+      dnsPolicy: ClusterFirstWithHostNet
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: beszel-agent
+          image: henrygd/beszel-agent:0.9.1
+          env:
+            - name: PORT
+              value: "45876"
+            - name: HOST_PROC
+              value: /host/proc
+            - name: HOST_SYS
+              value: /host/sys
+            - name: HOST_ETC
+              value: /host/etc
+            # Report disk usage for the appdata volume alongside the root fs.
+            - name: EXTRA_FILESYSTEMS
+              value: /host/mnt/appdata
+            - name: KEY
+              valueFrom:
+                secretKeyRef:
+                  name: beszel-agent
+                  key: hub-public-key
+          ports:
+            - name: agent
+              containerPort: 45876
+              hostPort: 45876
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: host-sys
+              mountPath: /host/sys
+              readOnly: true
+            - name: host-etc
+              mountPath: /host/etc
+              readOnly: true
+            - name: host-appdata
+              mountPath: /host/mnt/appdata
+              readOnly: true
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+      volumes:
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
+        - name: host-sys
+          hostPath:
+            path: /sys
+            type: Directory
+        - name: host-etc
+          hostPath:
+            path: /etc
+            type: Directory
+        - name: host-appdata
+          hostPath:
+            path: /mnt/appdata
+            type: Directory
