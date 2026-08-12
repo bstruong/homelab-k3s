@@ -15,9 +15,26 @@ spec:
       port: 3000
       targetPort: http
 ---
-# DNS has to be reachable from the LAN, not just from inside the cluster.
-# On k3s this is served by the built-in klipper load-balancer, which publishes
-# :53 on the node itself.
+# DNS has to be reachable from the LAN, but it must not take port 53 on the
+# node itself.
+#
+# `type: LoadBalancer` does exactly that on k3s, and it deadlocks the cluster.
+# ServiceLB (klipper) schedules a DaemonSet that claims hostPort 53, and a
+# hostPort binds on *every* host address — including 127.0.0.53, where
+# systemd-resolved's stub listener lives. Every lookup on the node then gets
+# connection-refused: containerd's image pulls fail with "lookup
+# registry-1.docker.io: Try again", and nothing new can be pulled — including
+# AdGuard's own image, so a restart cannot recover. Worse, AdGuard answers
+# nothing until it has been configured through the web UI, so a first install
+# breaks host DNS the moment this Service is created.
+#
+# externalIPs has the reachability without the deadlock. kube-proxy programs
+# DNAT rules for 192.168.1.92:53 without opening a socket, so LAN clients reach
+# AdGuard while the node keeps resolving through systemd-resolved and its own
+# uplink. If AdGuard is down then LAN DNS is down — unavoidable once AdGuard is
+# your resolver — but the node can still pull the image that fixes it.
+#
+# Keep the node's resolv.conf pointed at the router, never at this address.
 apiVersion: v1
 kind: Service
 metadata:
@@ -26,8 +43,11 @@ metadata:
   labels:
     app.kubernetes.io/name: adguard-home
 spec:
-  type: LoadBalancer
-  externalTrafficPolicy: Local
+  type: ClusterIP
+  # The node's LAN address. Renumbering the node means updating this, alongside
+  # the hostname pins in every pvc.yaml.
+  externalIPs:
+    - 192.168.1.92
   selector:
     app.kubernetes.io/name: adguard-home
   ports:
