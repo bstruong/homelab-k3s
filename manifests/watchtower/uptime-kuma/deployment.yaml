@@ -1,4 +1,35 @@
 ---
+# This image is built to start as root and drop privileges itself. From
+# extra/entrypoint.sh (tag 1.23.16):
+#
+#   PUID=${PUID=0}
+#   PGID=${PGID=0}
+#   files_ownership () { chown -hRc "$PUID":"$PGID" /app/data; }
+#   files_ownership
+#   exec setpriv --reuid "$PUID" --regid "$PGID" --clear-groups "$@"
+#
+# Two things follow from that, and both broke the previous configuration:
+#
+#  1. PUID/PGID default to 0, not to whoever the container runs as. Forcing
+#     runAsUser: 1000 meant an unprivileged process ran `chown 0:0 /app/data`.
+#     Linux only permits a chown that leaves the owner unchanged, and only for
+#     the file's owner, so this returned EPERM no matter who owned the
+#     directory — which is why pre-chowning the volume to 1000:1000 in an init
+#     container did not help. Setting PUID/PGID to 1000 makes the chown target
+#     match the eventual owner.
+#  2. `setpriv --reuid/--regid --clear-groups` needs CAP_SETUID/CAP_SETGID
+#     (setgroups(2) alone requires CAP_SETGID). A container pinned to uid 1000
+#     cannot do it, so the step-down would have failed even if the chown had
+#     succeeded.
+#
+# So the container starts as root, and the entrypoint hands off to uid 1000.
+# The application process is still unprivileged — the capabilities below are
+# dropped by the kernel at the setpriv step. The release stage of the upstream
+# Dockerfile has no USER directive, confirming root is the intended start
+# state; the `USER node` line in that file belongs to the pr-test stage.
+#
+# The init container that used to chown this volume is gone: the entrypoint
+# does that job itself, correctly, as root.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -21,52 +52,25 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
+      # No runAsUser/runAsNonRoot here on purpose — see the note above. No
+      # fsGroup either: it does nothing for hostPath volumes, and the
+      # entrypoint's --clear-groups would discard the supplementary group
+      # regardless.
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
-        # fsGroup is set but does NOT fix ownership here: kubelet's recursive
-        # ownership pass does not apply to hostPath volumes, so the directory
-        # arrives owned by whoever created it on the node (root, via
-        # DirectoryOrCreate). It is kept because it still governs the
-        # supplementary group of the process. The init container below is what
-        # actually fixes the volume.
-        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
-      initContainers:
-        # The image's entrypoint chowns /app/data to its own user. An
-        # unprivileged process cannot chown a root-owned directory, so that
-        # fails before the app starts. Fixing ownership up front makes the
-        # entrypoint's chown a no-op — Linux permits chown to the *same* uid
-        # without CAP_CHOWN — instead of an error.
-        - name: fix-data-ownership
-          image: busybox:1.37
-          command: ["sh", "-c", "chown -R 1000:1000 /app/data && echo 'ownership set to 1000:1000'"]
-          securityContext:
-            # Overrides the pod-level runAsNonRoot for this container only.
-            runAsNonRoot: false
-            runAsUser: 0
-            runAsGroup: 0
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
-              add: ["CHOWN"]
-          volumeMounts:
-            - name: data
-              mountPath: /app/data
-          resources:
-            requests:
-              cpu: 10m
-              memory: 16Mi
-            limits:
-              cpu: 100m
-              memory: 64Mi
       containers:
         - name: uptime-kuma
           image: louislam/uptime-kuma:1.23.16
           env:
+            # Own the data directory as, and run the app as, uid/gid 1000 —
+            # matching the ownership deploy.sh asks you to set on
+            # /mnt/appdata. Without these the entrypoint would chown to 0:0
+            # and run the application as root.
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
             - name: UPTIME_KUMA_PORT
               value: "3001"
             - name: NODE_ENV
@@ -78,9 +82,16 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-              # ICMP ping monitors need raw sockets. Drop this if you only
-              # ever use HTTP/TCP/DNS monitors.
-              add: ["NET_RAW"]
+              add:
+                # chown /app/data during startup.
+                - CHOWN
+                # setpriv's step-down to uid/gid 1000, including setgroups().
+                - SETUID
+                - SETGID
+                # ICMP ping monitors. Kept in the bounding set so that
+                # /bin/ping's file capability still applies after the
+                # step-down; remove it if you only use HTTP/TCP/DNS monitors.
+                - NET_RAW
           volumeMounts:
             - name: data
               mountPath: /app/data
