@@ -43,9 +43,15 @@ spec:
         - name: adguard-home
           image: adguard/adguardhome:v0.107.52
           args:
+            # AdGuard Home parses its own command line rather than using a
+            # flag library, and this build matches option names by exact
+            # string — so `--work-dir=<path>` is read as an unknown option.
+            # Flag and value must be separate argv entries.
             - --no-check-update
-            - --work-dir=/opt/adguardhome/work
-            - --config=/opt/adguardhome/conf/AdGuardHome.yaml
+            - --work-dir
+            - /opt/adguardhome/work
+            - --config
+            - /opt/adguardhome/conf/AdGuardHome.yaml
           ports:
             - name: http
               containerPort: 3000
