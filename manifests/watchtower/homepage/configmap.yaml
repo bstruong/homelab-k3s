@@ -50,6 +50,20 @@ data:
             description: Uptime monitoring
             namespace: monitoring
             app: uptime-kuma
+            # Live up/down/uptime counts, read from the published `watchtower`
+            # status page. The in-cluster Service URL is used rather than the
+            # public hostname on purpose: CoreDNS forwards external names to the
+            # node stub resolver and cannot resolve *.watchtower.local reliably,
+            # whereas cluster DNS always works.
+            widget:
+              type: uptimekuma
+              url: http://uptime-kuma.monitoring:3001
+              slug: watchtower
+        - ntfy:
+            href: https://ntfy.watchtower.local
+            description: Push notifications
+            namespace: monitoring
+            app: ntfy
 
     - Identity:
         - Vaultwarden:
