@@ -1,0 +1,46 @@
+---
+# Holds ntfy's two SQLite databases: the message cache and the auth database.
+# The auth database is the important one — it carries the users, the per-topic
+# ACLs and the access tokens, all of which are created in-pod by `ntfy user` /
+# `ntfy access` / `ntfy token` rather than seeded from a SealedSecret. Losing
+# this volume means re-issuing the token and updating every publisher.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: ntfy-data
+  labels:
+    app.kubernetes.io/name: ntfy
+spec:
+  capacity:
+    storage: 1Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/ntfy
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: monitoring
+    name: ntfy-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ntfy-data
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: ntfy
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: ntfy-data
+  resources:
+    requests:
+      storage: 1Gi
