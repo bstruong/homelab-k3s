@@ -26,4 +26,5 @@ spec:
       services:
         - name: syncthing
           port: 8384
-  tls: {}
+  tls:
+    secretName: syncthing-tls

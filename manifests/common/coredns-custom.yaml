@@ -1,0 +1,31 @@
+---
+# Forward *.watchtower.local to AdGuard only.
+#
+# The managed Corefile ends with `forward . /etc/resolv.conf`, and the
+# resolv.conf CoreDNS is handed lists TWO upstreams: AdGuard (192.168.1.92,
+# which holds the *.watchtower.local rewrites) and the router (192.168.1.1,
+# which knows nothing about them and answers NXDOMAIN). CoreDNS spreads queries
+# across both, so roughly half of all *.watchtower.local lookups got NXDOMAIN —
+# and `cache 30` then pinned that negative answer for 30 seconds.
+#
+# That is what made in-cluster resolution of these names flap: Uptime Kuma
+# monitors intermittently ENOTFOUND, and Vaultwarden's OIDC discovery failing
+# with "Failed to discover OpenID provider" whenever it landed in a bad window.
+#
+# This server block takes watchtower.local out of the round-robin entirely and
+# sends it only to the host that can answer it. The managed Corefile already
+# ends with `import /etc/coredns/custom/*.server`, and the CoreDNS deployment
+# mounts this ConfigMap at /etc/coredns/custom (optional: true), so nothing
+# k3s-managed needs editing — which also means a k3s upgrade will not revert it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  watchtower.server: |
+    watchtower.local:53 {
+        errors
+        cache 30
+        forward . 192.168.1.92
+    }

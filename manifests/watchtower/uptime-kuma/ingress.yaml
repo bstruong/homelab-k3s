@@ -26,4 +26,5 @@ spec:
       services:
         - name: uptime-kuma
           port: 3001
-  tls: {}
+  tls:
+    secretName: uptime-kuma-tls

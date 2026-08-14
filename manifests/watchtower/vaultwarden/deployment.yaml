@@ -28,6 +28,32 @@ spec:
         fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
+      # Build a CA bundle that includes the Watchtower Homelab Root CA.
+      #
+      # update-ca-certificates cannot run in the main container: its root
+      # filesystem is read-only and it runs as uid 1000, so /etc/ssl/certs is
+      # not writable. Instead this init container concatenates the image's own
+      # system bundle with our CA into an emptyDir, and the main container
+      # mounts that single file over the bundle path. Backend-agnostic — it
+      # works whether or not the TLS stack honours SSL_CERT_FILE — and it keeps
+      # the public CAs, so unrelated outbound HTTPS still works.
+      initContainers:
+        - name: ca-trust
+          image: vaultwarden/server:1.37.1-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - cat /etc/ssl/certs/ca-certificates.crt /ca/ca.crt > /ca-bundle/ca-certificates.crt
+          volumeMounts:
+            - name: homelab-ca
+              mountPath: /ca
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /ca-bundle
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
       containers:
         - name: vaultwarden
           image: vaultwarden/server:1.37.1-alpine
@@ -89,6 +115,10 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              subPath: ca-certificates.crt
+              readOnly: true
             - name: data
               mountPath: /data
             - name: tmp
@@ -113,6 +143,11 @@ spec:
               cpu: 500m
               memory: 512Mi
       volumes:
+        - name: homelab-ca
+          configMap:
+            name: homelab-ca
+        - name: ca-bundle
+          emptyDir: {}
         - name: data
           persistentVolumeClaim:
             claimName: vaultwarden-data

@@ -26,4 +26,5 @@ spec:
       services:
         - name: ntfy
           port: 8080
-  tls: {}
+  tls:
+    secretName: ntfy-tls
