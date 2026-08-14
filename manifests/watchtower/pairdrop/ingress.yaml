@@ -39,4 +39,5 @@ spec:
       services:
         - name: pairdrop
           port: 3000
-  tls: {}
+  tls:
+    secretName: pairdrop-tls

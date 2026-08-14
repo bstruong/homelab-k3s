@@ -26,4 +26,5 @@ spec:
       services:
         - name: jellyfin
           port: 8096
-  tls: {}
+  tls:
+    secretName: jellyfin-tls

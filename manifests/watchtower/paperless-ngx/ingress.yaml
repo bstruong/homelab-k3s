@@ -26,4 +26,5 @@ spec:
       services:
         - name: paperless-ngx
           port: 8000
-  tls: {}
+  tls:
+    secretName: paperless-ngx-tls
