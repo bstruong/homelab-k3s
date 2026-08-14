@@ -88,6 +88,14 @@ data:
             description: Document archive
             namespace: docs
             app: paperless-ngx
+            # Live inbox/total document counts. The API token is injected from
+            # the homepage-widgets SealedSecret via envFrom and substituted
+            # here at config-load time — this ConfigMap is committed to a
+            # PUBLIC repo, so no credential may appear in it literally.
+            widget:
+              type: paperlessngx
+              url: http://paperless-ngx.docs:8000
+              key: {{HOMEPAGE_VAR_PAPERLESS_TOKEN}}
         - AppFlowy:
             href: https://appflowy.watchtower.local
             description: Notes and docs

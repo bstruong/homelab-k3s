@@ -68,6 +68,17 @@ spec:
               value: homepage.watchtower.local,watchtower.local
             - name: PORT
               value: "3000"
+          # Widget credentials. services.yaml refers to these as
+          # {{HOMEPAGE_VAR_*}} and homepage substitutes them at config-load
+          # time, so the ConfigMap — which is committed to this PUBLIC repo —
+          # never contains an API key or password. The values come from the
+          # SealedSecret alongside it. optional: true so the deployment still
+          # starts before the secret is unsealed, with the affected widgets
+          # simply erroring rather than the whole pod failing to schedule.
+          envFrom:
+            - secretRef:
+                name: homepage-widgets
+                optional: true
           ports:
             - name: http
               containerPort: 3000
