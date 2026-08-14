@@ -53,6 +53,27 @@ data:
             description: Host metrics
             namespace: monitoring
             app: beszel-hub
+            # Live CPU/memory/disk for the paired host. Authenticates as a
+            # dedicated PocketBase superuser (homepage@watchtower.local), not
+            # the personal admin account — the widget needs superuser rights,
+            # and a scoped account can be rotated without touching that login.
+            # systemId accepts the system id or its name; homepage matches on
+            # `item.id === systemId || item.name === systemId`.
+            widget:
+              type: beszel
+              url: http://beszel-hub.monitoring:8090
+              # version 2 is REQUIRED here and is not the default. Homepage
+              # defaults to version 1, which authenticates against PocketBase
+              # /api/admins/ — an endpoint that no longer exists in the
+              # PocketBase 0.23+ that Beszel 0.9.1 embeds. The request then hits
+              # the SPA fallback and returns the Beszel index.html with HTTP
+              # 200, the widget parses no token out of it, and the resulting
+              # Authorization header fails with ERR_INVALID_CHAR on the
+              # newlines in that HTML. version 2 uses _superusers instead.
+              version: 2
+              username: {{HOMEPAGE_VAR_BESZEL_USERNAME}}
+              password: {{HOMEPAGE_VAR_BESZEL_PASSWORD}}
+              systemId: watchtower
         - Uptime Kuma:
             href: https://status.watchtower.local
             description: Uptime monitoring
