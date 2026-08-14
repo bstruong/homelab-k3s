@@ -39,4 +39,5 @@ spec:
       services:
         - name: pocket-id
           port: 1411
-  tls: {}
+  tls:
+    secretName: pocket-id-tls
