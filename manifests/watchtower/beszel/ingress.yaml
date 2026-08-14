@@ -26,4 +26,5 @@ spec:
       services:
         - name: beszel-hub
           port: 8090
-  tls: {}
+  tls:
+    secretName: beszel-hub-tls

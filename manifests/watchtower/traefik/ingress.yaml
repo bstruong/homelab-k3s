@@ -28,4 +28,5 @@ spec:
         # Traefik's internal API, not a Kubernetes Service.
         - name: api@internal
           kind: TraefikService
-  tls: {}
+  tls:
+    secretName: traefik-dashboard-tls

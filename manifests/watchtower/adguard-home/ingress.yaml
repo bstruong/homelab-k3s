@@ -26,4 +26,5 @@ spec:
       services:
         - name: adguard-home
           port: 3000
-  tls: {}
+  tls:
+    secretName: adguard-home-tls
