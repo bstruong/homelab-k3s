@@ -50,6 +50,36 @@ spec:
                 secretKeyRef:
                   name: vaultwarden
                   key: admin-token
+            # ─── SSO via Pocket ID ───────────────────────────────────────────
+            # SSO is the preferred login path, NOT the only one. SSO_ONLY stays
+            # false so master-password login remains available — if Pocket ID is
+            # down or the OIDC client is misconfigured, the vault must still be
+            # reachable.
+            #
+            # SSO_SIGNUPS_MATCH_EMAIL binds an incoming SSO identity to the
+            # EXISTING local account whose email matches, recording the link in
+            # the sso_users table, rather than creating a second empty vault.
+            # The two emails were compared byte-for-byte (case-sensitive, no
+            # whitespace) before this was enabled; they are identical.
+            - name: SSO_ENABLED
+              value: "true"
+            - name: SSO_ONLY
+              value: "false"
+            - name: SSO_AUTHORITY
+              value: https://id.watchtower.local
+            - name: SSO_SIGNUPS_MATCH_EMAIL
+              value: "true"
+            # PKCE is enabled on the Pocket ID client, so it must be enabled
+            # here too or the authorization exchange is rejected.
+            - name: SSO_PKCE
+              value: "true"
+            - name: SSO_CLIENT_ID
+              value: "d1ed2fab-5bed-4503-bcdd-08719bc28731"
+            - name: SSO_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: vaultwarden
+                  key: sso-client-secret
           ports:
             - name: http
               containerPort: 8080
