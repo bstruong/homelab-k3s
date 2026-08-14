@@ -86,6 +86,20 @@ spec:
             capabilities:
               drop: ["ALL"]
           volumeMounts:
+            # s6-overlay, this image's init system, creates /run/s6 and
+            # /run/service before starting anything. In the image / and /run are
+            # owned by uid 1000 mode 0755 while this container runs as uid 0 —
+            # and `capabilities: drop: ["ALL"]` strips CAP_DAC_OVERRIDE, which is
+            # what root would otherwise use to write to a directory it does not
+            # own. Hence:
+            #   s6-mkdir: warning: unable to mkdir /run/s6: Permission denied
+            #   s6-overlay-suexec: fatal: child failed with exit code 111
+            # An emptyDir mounts root-owned and writable, so uid 0 can create
+            # those directories without restoring any capability. The root
+            # filesystem is NOT read-only here; the cause was ownership versus
+            # dropped capabilities.
+            - name: run
+              mountPath: /run
             - name: config
               mountPath: /config
           startupProbe:
@@ -115,6 +129,8 @@ spec:
               cpu: "2"
               memory: 2Gi
       volumes:
+        - name: run
+          emptyDir: {}
         - name: config
           persistentVolumeClaim:
             claimName: home-assistant-config
