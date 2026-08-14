@@ -40,6 +40,14 @@ data:
             description: DNS and ad blocking
             namespace: adguard
             app: adguard-home
+            # Live query/blocked counts. Credentials come from the
+            # homepage-widgets SealedSecret via envFrom — never literal here,
+            # this ConfigMap is committed to a PUBLIC repo.
+            widget:
+              type: adguard
+              url: http://adguard-home.adguard:3000
+              username: brian
+              password: {{HOMEPAGE_VAR_ADGUARD_PASSWORD}}
         - Beszel:
             href: https://beszel.watchtower.local
             description: Host metrics
@@ -83,6 +91,12 @@ data:
             description: Media library
             namespace: media
             app: jellyfin
+            # Homepage has no `jellyfin` widget type; Jellyfin is covered by the
+            # emby widget, which speaks the same API.
+            widget:
+              type: emby
+              url: http://jellyfin.media:8096
+              key: {{HOMEPAGE_VAR_JELLYFIN_KEY}}
         - Paperless-ngx:
             href: https://paperless.watchtower.local
             description: Document archive
