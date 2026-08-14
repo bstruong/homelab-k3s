@@ -50,3 +50,6 @@ tskey*
 authkey*
 
 .DS_Store
+*.log
+kubeseal
+kubeseal-*.tar.gz
