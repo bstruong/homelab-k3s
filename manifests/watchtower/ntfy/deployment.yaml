@@ -1,0 +1,123 @@
+---
+# ntfy — notification sink for the stack. Uptime Kuma publishes here; phones and
+# desktops subscribe.
+#
+# This runs on Watchtower rather than on the workstation deliberately. A
+# notification service that lives on Metrotower is asleep exactly when it is
+# needed most — "the server is unreachable" is not a message the server's own
+# alerting can deliver from a laptop that is powered off.
+#
+# Configuration is entirely via NTFY_* environment variables (every `ntfy serve`
+# flag has one, verified against `ntfy serve --help` on this image tag), so
+# there is no server.yml to mount and no ConfigMap to keep in sync.
+#
+# Access control: auth-default-access=deny-all means an anonymous request can
+# neither read nor write any topic. Publishing and subscribing both require a
+# token, which is created in-pod against the auth database on the PVC:
+#
+#   kubectl exec -n monitoring deploy/ntfy -- ntfy user add --role=user kuma
+#   kubectl exec -n monitoring deploy/ntfy -- ntfy access kuma watchtower-alerts rw
+#   kubectl exec -n monitoring deploy/ntfy -- ntfy token add kuma
+#
+# One deployment trap worth recording: the PV below uses
+# hostPath/DirectoryOrCreate, and the kubelet creates that directory as
+# root:root 0755. This container runs as uid 1000 and cannot write there, so
+# the first rollout crash-looped with a misleading
+# `FATAL unable to open database file: no such file or directory` — SQLite
+# reports SQLITE_CANTOPEN for a permission problem, not EACCES. fsGroup does
+# not help: it has no effect on hostPath volumes. The fix is to own
+# /mnt/appdata/ntfy (and its attachments/ subdirectory) as 1000:1000, matching
+# what deploy.sh asks for across /mnt/appdata generally.
+#
+# The token is NOT stored in this repo — the repo is public, and the token is
+# generated after deploy rather than seeded before it, so there is nothing for a
+# SealedSecret to carry. It lives in the PVC's auth.db and in Uptime Kuma's own
+# notification config. Keep a copy in Vaultwarden.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ntfy
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: ntfy
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ntfy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ntfy
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: ntfy
+          image: binwiederhier/ntfy:v2.11.0
+          args: ["serve"]
+          env:
+            # Must match the public URL, or the web UI generates subscribe
+            # links pointing at the wrong host and iOS/Android clients reject
+            # the topic.
+            - name: NTFY_BASE_URL
+              value: https://ntfy.watchtower.local
+            # Unprivileged port: the container runs as uid 1000 and cannot bind
+            # ntfy's default :80.
+            - name: NTFY_LISTEN_HTTP
+              value: ":8080"
+            - name: NTFY_CACHE_FILE
+              value: /var/lib/ntfy/cache.db
+            - name: NTFY_AUTH_FILE
+              value: /var/lib/ntfy/auth.db
+            # Token-based access: deny anonymous read AND write everywhere.
+            - name: NTFY_AUTH_DEFAULT_ACCESS
+              value: deny-all
+            # Traefik terminates TLS in front of this, so rate limiting must
+            # read X-Forwarded-For or every visitor looks like the ingress pod.
+            - name: NTFY_BEHIND_PROXY
+              value: "true"
+            - name: NTFY_ATTACHMENT_CACHE_DIR
+              value: /var/lib/ntfy/attachments
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ntfy
+          livenessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /v1/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 256Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: ntfy-data
