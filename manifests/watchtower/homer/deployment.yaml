@@ -1,0 +1,88 @@
+---
+# Homer is a static bundle served by lighttpd — no database, no PVC, no state
+# on disk. The dashboard is entirely described by the ConfigMap next to this
+# file, so the pod is disposable.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: homer
+  namespace: home
+  labels:
+    app.kubernetes.io/name: homer
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: homer
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: homer
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: homer
+          image: b4bz/homer:v25.05.2
+          env:
+            - name: PORT
+              value: "8080"
+            # The entrypoint seeds /www/assets from /www/default-assets when
+            # config.yml is missing. Ours is mounted, and the image already
+            # ships the themes, icons and manifest in /www/assets, so there is
+            # nothing to seed — and the root filesystem is read-only, which
+            # that copy would fail against anyway.
+            - name: INIT_ASSETS
+              value: "0"
+          ports:
+            - name: http
+              containerPort: 8080
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # subPath, not a directory mount: /www/assets also holds the
+            # image's themes/, icons/ and manifest.json, and mounting the
+            # ConfigMap over the whole directory would hide them and leave the
+            # page unstyled. This drops in the single file instead.
+            #
+            # The tradeoff is that subPath mounts do not receive ConfigMap
+            # updates, so a config change needs a rollout restart. Acceptable:
+            # Homer only reads config.yml when the browser loads the page, and
+            # edits arrive through git anyway.
+            - name: config
+              mountPath: /www/assets/config.yml
+              subPath: config.yml
+              readOnly: true
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi
+      volumes:
+        - name: config
+          configMap:
+            name: homer-config

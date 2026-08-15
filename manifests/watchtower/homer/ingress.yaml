@@ -1,0 +1,38 @@
+---
+# A plain HTTP route alongside HTTPS rather than a redirect middleware: Homer
+# needs no secure context (no service worker registration is required to read
+# a link list), and this is the page people type from a fresh browser, so the
+# cert warning on a `.local` name should not be the first thing it does.
+#
+# No forward-auth. Homer is a static list of hostnames reachable only over
+# Headscale, and every target enforces its own auth — consistent with the
+# decision already taken for the other read-only internal pages.
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homer-http
+  namespace: home
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`start.watchtower.local`)
+      services:
+        - name: homer
+          port: 8080
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: homer-https
+  namespace: home
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`start.watchtower.local`)
+      services:
+        - name: homer
+          port: 8080
+  tls:
+    secretName: homer-tls
