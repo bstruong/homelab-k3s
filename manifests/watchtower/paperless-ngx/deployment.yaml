@@ -61,6 +61,34 @@ spec:
             limits:
               cpu: 100m
               memory: 64Mi
+        # Paperless makes an outbound HTTPS call to Pocket ID during OIDC
+        # discovery. The image ships only the public CA set, so concatenate the
+        # homelab root CA onto the system bundle here and mount the result over
+        # the original in the main container. Uses the app image so the base
+        # bundle is exactly the one the runtime container would have used.
+        - name: ca-trust
+          image: ghcr.io/paperless-ngx/paperless-ngx:2.13.5
+          command: ["/bin/sh", "-c"]
+          args:
+            - cat /etc/ssl/certs/ca-certificates.crt /ca/ca.crt > /ca-bundle/ca-certificates.crt
+          volumeMounts:
+            - name: homelab-ca
+              mountPath: /ca
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /ca-bundle
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: paperless-ngx
           image: ghcr.io/paperless-ngx/paperless-ngx:2.13.5
@@ -83,6 +111,14 @@ spec:
                 secretKeyRef:
                   name: paperless-ngx
                   key: admin-password
+            # django-allauth fetches the OIDC discovery document with
+            # python-requests, which verifies against certifi's own bundle
+            # (/usr/local/lib/python3.12/site-packages/certifi/cacert.pem), NOT
+            # the system trust store. Mounting the merged bundle alone is
+            # therefore not enough — without this variable discovery still fails
+            # with CERTIFICATE_VERIFY_FAILED.
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/ssl/certs/ca-certificates.crt
           ports:
             - name: http
               containerPort: 8000
@@ -103,6 +139,10 @@ spec:
             - name: data
               mountPath: /export
               subPath: export
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              subPath: ca-certificates.crt
+              readOnly: true
             - name: tmp
               mountPath: /tmp
           startupProbe:
@@ -132,6 +172,11 @@ spec:
               cpu: "1"
               memory: 2Gi
       volumes:
+        - name: homelab-ca
+          configMap:
+            name: homelab-ca
+        - name: ca-bundle
+          emptyDir: {}
         - name: data
           persistentVolumeClaim:
             claimName: paperless-data

@@ -1,0 +1,52 @@
+---
+# Public certificate of the Watchtower Homelab Root CA.
+#
+# Not secret — a CA public cert is meant to be distributed; only ca.key is
+# sensitive, and that lives on persistent storage outside this repo.
+#
+# ConfigMaps are namespace-scoped, so this is a second copy of the same
+# certificate that vaultwarden/ca-configmap.yaml puts in `identity`. Paperless
+# runs in `docs` and cannot reference that one.
+#
+# Paperless needs this in its own trust store: django-allauth makes an outbound
+# HTTPS call to https://id.watchtower.local/.well-known/openid-configuration
+# during OIDC discovery. Without the issuer, that fails with
+# CERTIFICATE_VERIFY_FAILED ("unable to get local issuer certificate") and the
+# OIDC login path breaks even though every other setting is correct.
+apiVersion: v1
+data:
+  ca.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIFOzCCAyOgAwIBAgIUT733Z7i+15CVl1oyFHge2N6kHqowDQYJKoZIhvcNAQEL
+    BQAwJTEjMCEGA1UEAwwaV2F0Y2h0b3dlciBIb21lbGFiIFJvb3QgQ0EwHhcNMjYw
+    ODE0MjMwMTM5WhcNMzYwODExMjMwMTM5WjAlMSMwIQYDVQQDDBpXYXRjaHRvd2Vy
+    IEhvbWVsYWIgUm9vdCBDQTCCAiIwDQYJKoZIhvcNAQEBBQADggIPADCCAgoCggIB
+    AJzzoDg5KU2jyp2BUlsE2nvKHKq23bPy3rJHHJU95EJtkQi9OAqium/fD5xxQelG
+    8+c8d34o0RFduD8+CpP4czrl0YHqZXLz3+kEg3HVLo2eMTjM/L/9/PL4mn678OX8
+    RiKIiAoH/D736f+IqyQY5zvWY1VUX6L9CLVua+C0woEeUBrzLxeVDKO/mS3iOWVW
+    tJABZI+Nc2aWFhUqN4kYQkDD5i2PAhE8NRlOnhN51y30isc2W6S5FumncMnlMqFQ
+    /FiJ10dzGse80DPdQeb9j6R1MmAMMSXjwBJqYNqB+og8KH37zhqcYP8FMbLU1rbU
+    kv7+gjFGcaeHRAJXJkOY/uatBpvuXEbgxNk+52xIey92yKQeSXvnLIUTrEVJ6k+t
+    JzntzFtMhUUBcG3B6hXe0lgQpgdSlu/hpJIESLsa4B80Nn/M9r4rmt2MyVACsMD/
+    48ri+0eD1P/A5y2j1Mf9mHk27ShRZ7x3qf5KKkMbjdZ0A1Z+Z2aWm9IdUUWA6bM0
+    AtA1cz0gFlKztv2NVmOqVmZtSyeCtIl/jyhn9WD25JjQNBbZjtUWjTDWZcYL4g34
+    2eJLG/NeFcoU0QI+ipUuvoj99qdcZj75nN/Cz5NmKg6fFHtsDOtlEZKRM9cjPCAw
+    03YXjAB8xRkD47OkxAXUvnUh5FHp8HCrlvdFEQw+vqQ/AgMBAAGjYzBhMB0GA1Ud
+    DgQWBBS1VzZ/900qSi7RkL0kZ0SXFe7V4jAfBgNVHSMEGDAWgBS1VzZ/900qSi7R
+    kL0kZ0SXFe7V4jAPBgNVHRMBAf8EBTADAQH/MA4GA1UdDwEB/wQEAwIBBjANBgkq
+    hkiG9w0BAQsFAAOCAgEAjxtP0qTivty+Be4z0lMgdr8fKKN8YeicnlwOAl2fO+T3
+    7ALuqIZ5eMsL4+u2ZWPCg1b2ypeX3xvw5vRz62AHmJehzX3Eun1nCecTKStwDtWX
+    oe4G4DQD9wRNPmzIfHdJJAVxIf+rg7atlqjh9tMyBGSwL6PiNykdE0rZYf946LZd
+    QB/qwEyCBScCQ1I4A8NIl2WLE7RFDpbr+kcUSoWZp3unKFz4NmIS0espz2Ysk03A
+    dlu4FCaXGBACkoclDQ01QM6tFqV88/6H7/rcUuqzAAYODKRDmem47PK+WUJvm/J9
+    gqHq0ZTi7PYCb7Gyj6C1onpVzNc+tSXqX3Ixf5yBAqTkq5n6pR9YQO1hcpiPd5zC
+    ZXgAG3OblLgw5p+Jr2qV3xZt674e8zpTXRWfT09TB73rsuVKXYFcMlDnxU1KwDv4
+    /s2Lo2aR/qP+TtQPU6CJzA7wjHoNwfbSqudNpxet5MglgSXHwpbQcKT9WjGpsj9l
+    LqcXYTAxjpzX63akqZAo9B5o8G1r9HjyF2e8msHwtxqCTXLg+bXFIaY5rY/uz5oR
+    xzCR3o2LMhIUooobFlcoHju46MbiWpJ6Edmp50jovDMy67Hb1KJXyuotWvfyRhrT
+    gewcBWuqOsbM0xTRgoH1AdfpvI64EHjbL3Jf9vQco7jH44yq0KCXcytWl9nnKmM=
+    -----END CERTIFICATE-----
+kind: ConfigMap
+metadata:
+  name: homelab-ca
+  namespace: docs
