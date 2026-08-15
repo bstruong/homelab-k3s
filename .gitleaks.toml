@@ -41,6 +41,11 @@ regexes = [
   '''password="\$\(''',              # command substitution
 ]
 paths = [
-  '''manifests/.*/sealedsecret\.yaml$''',  # encrypted by design
+  # Matches both sealedsecret.yaml and the tls-sealedsecret.yaml written by
+  # `kubeseal` for each app's leaf cert. The optional prefix group is the
+  # point: without it the '/' anchored this to the bare filename, so every
+  # tls- prefixed file fell through to the generic-api-key rule and tripped
+  # on its own ciphertext.
+  '''manifests/.*/([A-Za-z0-9_-]+-)?sealedsecret\.yaml$''',  # encrypted by design
   '''\.gitleaks\.toml$''',                 # this file's own patterns
 ]

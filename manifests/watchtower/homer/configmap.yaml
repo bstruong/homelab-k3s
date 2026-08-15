@@ -1,0 +1,154 @@
+---
+# Homer's entire state is this one file. There is no database and no backend
+# process — lighttpd serves the static bundle and the browser fetches
+# config.yml, so the dashboard is fully described by what is committed here.
+# That is the reason Homer was chosen over Heimdall/Dashy/Flame: recovery is
+# `kubectl apply`, with nothing to restore from a snapshot.
+#
+# Deliberately no smart cards. Homer supports per-item `type:` widgets that
+# poll each service from the browser, and none are used here — live health
+# belongs to Uptime Kuma and Homepage. Every item below is an inert link, so
+# this page makes zero outbound requests to the apps it lists.
+#
+# Icons are Font Awesome classes, which ship inside the image
+# (/www/resources/fa-*.woff2). No remote icon CDN is referenced, so the page
+# renders identically with the LAN offline.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: homer-config
+  namespace: home
+  labels:
+    app.kubernetes.io/name: homer
+data:
+  config.yml: |
+    ---
+    title: "Watchtower"
+    subtitle: "Homelab"
+    logo: false
+    icon: "fas fa-tower-observation"
+
+    header: true
+    footer: false
+
+    theme: default
+    colors:
+      light:
+        highlight-primary: "#3367d6"
+        highlight-secondary: "#4285f4"
+        highlight-hover: "#5a95f5"
+        background: "#f5f5f5"
+        card-background: "#ffffff"
+        text: "#363636"
+        text-header: "#ffffff"
+        text-title: "#303030"
+        text-subtitle: "#424242"
+        card-shadow: rgba(0, 0, 0, 0.1)
+        link: "#3273dc"
+        link-hover: "#363636"
+      dark:
+        highlight-primary: "#3367d6"
+        highlight-secondary: "#4285f4"
+        highlight-hover: "#5a95f5"
+        background: "#131313"
+        card-background: "#2b2b2b"
+        text: "#eaeaea"
+        text-header: "#ffffff"
+        text-title: "#fafafa"
+        text-subtitle: "#f5f5f5"
+        card-shadow: rgba(0, 0, 0, 0.4)
+        link: "#3273dc"
+        link-hover: "#ffdd57"
+
+    # Homer pings each service to colour a status dot when this is on. Off:
+    # this page is a link list, not a monitor.
+    connectivityCheck: false
+
+    links: []
+
+    services:
+      - name: "Infrastructure"
+        icon: "fas fa-network-wired"
+        items:
+          - name: "Traefik"
+            subtitle: "Ingress controller"
+            icon: "fas fa-diagram-project"
+            # The dashboard only answers under /dashboard/; the bare host is
+            # not routed. Trailing slash is required or Traefik 404s.
+            url: "https://traefik.watchtower.local/dashboard/"
+          - name: "AdGuard Home"
+            subtitle: "DNS and ad blocking"
+            icon: "fas fa-shield-halved"
+            url: "https://dns.watchtower.local"
+
+      - name: "Monitoring"
+        icon: "fas fa-gauge-high"
+        items:
+          - name: "Uptime Kuma"
+            subtitle: "Service uptime"
+            icon: "fas fa-heart-pulse"
+            url: "https://status.watchtower.local"
+          - name: "Beszel"
+            subtitle: "Host metrics"
+            icon: "fas fa-microchip"
+            url: "https://beszel.watchtower.local"
+          - name: "ntfy"
+            subtitle: "Push notifications"
+            icon: "fas fa-bell"
+            url: "https://ntfy.watchtower.local"
+
+      - name: "Identity"
+        icon: "fas fa-key"
+        items:
+          - name: "Vaultwarden"
+            subtitle: "Password manager"
+            icon: "fas fa-lock"
+            url: "https://vault.watchtower.local"
+          - name: "Pocket ID"
+            subtitle: "Passkey OIDC provider"
+            icon: "fas fa-fingerprint"
+            url: "https://id.watchtower.local"
+
+      - name: "Documents"
+        icon: "fas fa-folder-open"
+        items:
+          - name: "Paperless-ngx"
+            subtitle: "Document archive"
+            icon: "fas fa-file-lines"
+            url: "https://paperless.watchtower.local"
+          - name: "AppFlowy"
+            subtitle: "Notes and workspaces"
+            icon: "fas fa-pen-to-square"
+            url: "https://appflowy.watchtower.local"
+
+      - name: "Media & Home"
+        icon: "fas fa-house"
+        items:
+          - name: "Jellyfin"
+            subtitle: "Media library"
+            icon: "fas fa-film"
+            url: "https://jellyfin.watchtower.local"
+          - name: "Home Assistant"
+            subtitle: "Home automation"
+            icon: "fas fa-house-signal"
+            url: "https://home.watchtower.local"
+
+      - name: "Sync & Transfer"
+        icon: "fas fa-arrows-rotate"
+        items:
+          - name: "Syncthing"
+            subtitle: "File synchronisation"
+            icon: "fas fa-rotate"
+            url: "https://syncthing.watchtower.local"
+          - name: "PairDrop"
+            subtitle: "Local file transfer"
+            icon: "fas fa-paper-plane"
+            url: "https://drop.watchtower.local"
+
+      - name: "Dashboards"
+        icon: "fas fa-table-columns"
+        items:
+          - name: "Homepage"
+            subtitle: "Live status dashboard"
+            icon: "fas fa-chart-line"
+            url: "https://homepage.watchtower.local"

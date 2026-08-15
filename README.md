@@ -91,6 +91,7 @@ before its agent's credential can exist.
 | PairDrop | `sync` | `drop.watchtower.local` | Stateless; HTTPS-only for WebRTC |
 | Home Assistant | `home` | `home.watchtower.local` | Root required (s6-overlay) |
 | Homepage | `home` | `watchtower.local` | The front door; read-only cluster RBAC |
+| Homer | `home` | `start.watchtower.local` | Static landing page; one ConfigMap, no database, no widgets |
 
 Cockpit runs on the host, not in k3s, and is deliberately absent here.
 
