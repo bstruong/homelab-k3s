@@ -119,6 +119,34 @@ spec:
             # with CERTIFICATE_VERIFY_FAILED.
             - name: REQUESTS_CA_BUNDLE
               value: /etc/ssl/certs/ca-certificates.crt
+            # --- OIDC via Pocket ID -----------------------------------------
+            # An ADDITIONAL login path, not the only one.
+            # PAPERLESS_DISABLE_REGULAR_LOGIN is deliberately left unset (it
+            # defaults to False), so the local admin account keeps working if
+            # Pocket ID is unreachable or this client is misconfigured. Do not
+            # set it to true without another way in.
+            - name: PAPERLESS_APPS
+              value: allauth.socialaccount.providers.openid_connect
+            # Credentials arrive by reference and are interpolated into the JSON
+            # below via $(VAR). Kubernetes expands $(VAR) only against env vars
+            # declared EARLIER in this list, so these two must stay above
+            # PAPERLESS_SOCIALACCOUNT_PROVIDERS. Same idiom as DATABASE_URL in
+            # appflowy/gotrue.yaml; it keeps the client secret out of this file.
+            - name: OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-ngx
+                  key: oidc-client-id
+            - name: OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: paperless-ngx
+                  key: oidc-client-secret
+            # provider_id "pocketid" determines the callback path allauth
+            # serves: /accounts/oidc/pocketid/login/callback/ - it must match
+            # the callback URL registered on the Pocket ID client.
+            - name: PAPERLESS_SOCIALACCOUNT_PROVIDERS
+              value: '{"openid_connect":{"APPS":[{"provider_id":"pocketid","name":"Pocket ID","client_id":"$(OIDC_CLIENT_ID)","secret":"$(OIDC_CLIENT_SECRET)","settings":{"server_url":"https://id.watchtower.local/.well-known/openid-configuration"}}]}}'
           ports:
             - name: http
               containerPort: 8000
