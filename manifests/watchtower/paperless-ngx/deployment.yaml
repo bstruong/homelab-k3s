@@ -145,8 +145,11 @@ spec:
             # provider_id "pocketid" determines the callback path allauth
             # serves: /accounts/oidc/pocketid/login/callback/ - it must match
             # the callback URL registered on the Pocket ID client.
+            # NOTE: OAUTH_PKCE_ENABLED is keyed on the provider type, so it applies to ALL
+            # allauth openid_connect providers - it is not scoped to Pocket ID. A future OIDC
+            # provider that cannot do PKCE would silently inherit this and fail the same way.
             - name: PAPERLESS_SOCIALACCOUNT_PROVIDERS
-              value: '{"openid_connect":{"APPS":[{"provider_id":"pocketid","name":"Pocket ID","client_id":"$(OIDC_CLIENT_ID)","secret":"$(OIDC_CLIENT_SECRET)","settings":{"server_url":"https://id.watchtower.local/.well-known/openid-configuration"}}]}}'
+              value: '{"openid_connect":{"OAUTH_PKCE_ENABLED":true,"APPS":[{"provider_id":"pocketid","name":"Pocket ID","client_id":"$(OIDC_CLIENT_ID)","secret":"$(OIDC_CLIENT_SECRET)","settings":{"server_url":"https://id.watchtower.local/.well-known/openid-configuration"}}]}}'
           ports:
             - name: http
               containerPort: 8000
