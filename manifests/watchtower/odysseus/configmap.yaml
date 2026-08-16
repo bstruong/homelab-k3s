@@ -71,10 +71,10 @@ data:
   # follow-up pass; it is defence in depth, not a replacement.
   AUTH_ENABLED: "true"
   LOCALHOST_BYPASS: "false"
-  # No ingress yet (ClusterIP only this pass), so no external origin to allow
-  # and cookies are not being served over TLS yet. Both get revisited when
-  # ingress.yaml lands.
-  ALLOWED_ORIGINS: http://localhost,http://127.0.0.1
-  SECURE_COOKIES: "false"
+  # Now served at https://odysseus.watchtower.local through Traefik with
+  # oauth2-proxy in front, so the browser origin is external and every response
+  # goes over TLS. The loopback origins stay for kubectl port-forward debugging.
+  ALLOWED_ORIGINS: http://localhost,http://127.0.0.1,https://odysseus.watchtower.local
+  SECURE_COOKIES: "true"
 
   ANONYMIZED_TELEMETRY: "FALSE"
