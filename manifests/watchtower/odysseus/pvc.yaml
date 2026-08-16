@@ -39,3 +39,52 @@ spec:
   resources:
     requests:
       storage: 20Gi
+---
+# Odysseus's own volume, deliberately separate from chromadb-data.
+#
+# /app/data holds .app_key — the Fernet key that encrypts every stored
+# credential (mail passwords, OAuth tokens, API keys) via src/secret_storage.py.
+# Lose it and none of them can be decrypted again, so this is Retain like every
+# other appdata volume, and it is NOT shared with the vector store.
+# Also here: auth.json (bcrypt users), sessions.json, app.db (SQLite,
+# DATABASE_URL=sqlite:///./data/app.db).
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: odysseus-data
+  labels:
+    app.kubernetes.io/name: odysseus
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/odysseus
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: odysseus
+    name: odysseus-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odysseus-data
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: odysseus
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: odysseus-data
+  resources:
+    requests:
+      storage: 20Gi
