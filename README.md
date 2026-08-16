@@ -106,6 +106,16 @@ Watchtower node. Each app gets a statically defined `PersistentVolume`
 owned by uid 1000: AdGuard Home, CrowdSec and Home Assistant are `0:0`, and
 AppFlowy's Postgres is `999:999`.
 
+**Backups.** Only the two Odysseus volumes are backed up so far, by
+`scripts/backup-odysseus-volumes.sh` on a daily user crontab on Watchtower
+(`15 3 * * *`). It scales `odysseus` and `chromadb` to zero before archiving:
+both keep SQLite in rollback-journal mode, not WAL, and `/mnt/appdata` is ext4
+with no LVM, so there is no snapshot available and a live copy can be torn.
+The outage is a few seconds. Archives go to `/mnt/appdata/backups` and are
+copied to Metrotower at `~/backups/watchtower/odysseus/`, keeping 7 of each.
+Same-disk copies do not survive the disk dying — the off-host copy is the real
+protection. Restore steps are documented at the bottom of the script.
+
 **Node pinning.** The volumes are host paths, so every workload carries
 `nodeSelector: kubernetes.io/hostname: watchtower` and every PV a matching
 `nodeAffinity`. If your node is named something else, change it in both places
