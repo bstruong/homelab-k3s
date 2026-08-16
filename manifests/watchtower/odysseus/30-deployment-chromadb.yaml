@@ -1,0 +1,87 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: chromadb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chromadb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chromadb
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        # The image ships no USER and would run as uid 0. Verified it runs
+        # fine as 1000 with /data owned 1000:1000, which is what
+        # /mnt/appdata/chromadb already is (created by brian, uid 1000).
+        # fsGroup does not chown hostPath volumes, so host ownership is the
+        # thing that actually matters here.
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: chromadb
+          # Pinned by digest: there is no 1.4.4 release tag on Docker Hub
+          # (only :latest and 1.4.2.dev*), and an unpinned :latest is exactly
+          # how the persist path moved to /data without anyone noticing.
+          # Digest below == :latest as of 2026-08-15, `chroma --version` 1.4.4.
+          image: docker.io/chromadb/chroma@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ANONYMIZED_TELEMETRY
+              value: "FALSE"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            # /data — NOT /chroma/chroma. The image's /config.yaml sets
+            # persist_path: "/data", and /chroma/chroma does not exist in the
+            # image at all. Odysseus's own docker-compose.yml mounts
+            # /chroma/chroma and therefore silently loses every vector on
+            # container recreate. Do not copy that here.
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              # Measured idle RSS ~11 MiB; headroom for index growth.
+              memory: 64Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: chromadb-data

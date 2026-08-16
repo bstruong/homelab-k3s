@@ -1,0 +1,31 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: searxng-settings
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: searxng
+data:
+  # Minimal overlay on the image's shipped settings. Two things matter here:
+  #
+  #   1. search.formats MUST include json. The stock image ships html only and
+  #      answers /search?format=json with 403 Forbidden — verified against
+  #      searxng:2026.5.31-7159b8aed. Odysseus calls the JSON API
+  #      (services/search/providers.py -> httpx.get(..., format=json)), so
+  #      without this the search backend is silently dead from the app's side.
+  #
+  #   2. server.secret_key is deliberately NOT set here. It is injected as the
+  #      SEARXNG_SECRET env var from the SealedSecret in 21-secret-searxng.yaml
+  #      (searx/settings_defaults.py binds SEARXNG_SECRET -> server.secret_key),
+  #      which keeps the value out of this ConfigMap and out of git entirely.
+  #
+  # server.method is left at its POST default: verified that GET
+  # /search?q=...&format=json still returns 200, so Odysseus's httpx.get works.
+  settings.yml: |
+    use_default_settings: true
+
+    search:
+      formats:
+        - html
+        - json
