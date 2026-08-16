@@ -1,0 +1,156 @@
+---
+# oauth2-proxy in front of Odysseus, authenticating against Pocket ID.
+#
+# Runs as a reverse proxy, not as a Traefik forwardAuth target. That choice is
+# forced: oauth2-proxy's /oauth2/auth endpoint only ever answers 202 or 401, and
+# Traefik's errors middleware preserves the original status, so a forwardAuth
+# setup returns 401 with a Location header. Browsers do not follow Location on a
+# 401 — an unauthenticated visitor got a near-blank page with a link to click
+# instead of the Pocket ID login page. In this mode oauth2-proxy answers
+# unauthenticated requests with a real 302 itself.
+#
+# Traffic path: Traefik -> oauth2-proxy:4180 -> odysseus:7000. Odysseus keeps its
+# own bcrypt login enabled behind this (AUTH_ENABLED=true); SSO is an outer gate,
+# not a replacement for it.
+#
+# This must live in the `odysseus` namespace: Traefik runs without
+# --providers.kubernetescrd.allowCrossNamespace, so an IngressRoute can only
+# reference a Service in its own namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: oauth2-proxy
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: oauth2-proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: oauth2-proxy
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: oauth2-proxy
+          # Pinned by digest. v7.15.3 is the current release as of 2026-06-09.
+          image: quay.io/oauth2-proxy/oauth2-proxy@sha256:10a1165743a192e1940b4708fb9647027185ce11a681a1c5519b442ff7f1f561
+          imagePullPolicy: IfNotPresent
+          args:
+            - --http-address=0.0.0.0:4180
+            - --provider=oidc
+            - --provider-display-name=Pocket ID
+            - --oidc-issuer-url=https://id.watchtower.local
+            # The Pocket ID client has PKCE enabled, so the proxy must send a
+            # code challenge or the token exchange is rejected.
+            - --code-challenge-method=S256
+            # Discovery talks TLS to id.watchtower.local, which is signed by the
+            # homelab CA. oauth2-proxy uses this file instead of the system
+            # bundle for the provider connection; see ca-configmap.yaml.
+            - --provider-ca-file=/etc/ssl/homelab/ca.crt
+            - --scope=openid profile email
+            # Pocket ID is the only issuer and every account in it is ours, so
+            # domain filtering adds nothing; authorisation is done by which
+            # users the client is granted to in Pocket ID.
+            - --email-domain=*
+            - --redirect-url=https://odysseus.watchtower.local/oauth2/callback
+            # The app itself. Everything not under /oauth2 is proxied here once
+            # the session cookie checks out.
+            - --upstream=http://odysseus.odysseus.svc.cluster.local:7000
+            # Odysseus streams model output. The default 1s flush interval would
+            # buffer server-sent events and make replies arrive in lurches.
+            - --flush-interval=0
+            # Behind Traefik: trust X-Forwarded-* so the proxy builds correct
+            # absolute URLs and logs the real client IP.
+            - --reverse-proxy=true
+            # Straight to Pocket ID rather than an interstitial "sign in with"
+            # page — there is only one provider.
+            - --skip-provider-button=true
+            # Cookie is only ever sent over the HTTPS IngressRoute.
+            - --cookie-secure=true
+            - --cookie-domain=odysseus.watchtower.local
+            - --whitelist-domain=odysseus.watchtower.local
+          env:
+            # Sealed in sealedsecret.yaml. Names must match the keys there.
+            - name: OAUTH2_PROXY_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy
+                  key: client-id
+            - name: OAUTH2_PROXY_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy
+                  key: client-secret
+            # Encrypts the session cookie. Not issued by Pocket ID — generated
+            # locally. Rotating it logs everyone out, nothing more.
+            - name: OAUTH2_PROXY_COOKIE_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: oauth2-proxy
+                  key: cookie-secret
+          ports:
+            - name: http
+              containerPort: 4180
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: homelab-ca
+              mountPath: /etc/ssl/homelab
+              readOnly: true
+          readinessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /ping
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+      volumes:
+        - name: homelab-ca
+          configMap:
+            name: homelab-ca
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: oauth2-proxy
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: oauth2-proxy
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: oauth2-proxy
+  ports:
+    - name: http
+      port: 4180
+      targetPort: http
+      protocol: TCP

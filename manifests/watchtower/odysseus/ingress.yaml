@@ -1,0 +1,56 @@
+---
+# Odysseus on odysseus.watchtower.local, behind Pocket ID SSO.
+#
+# Both routes point at oauth2-proxy, never at the app directly — the proxy is
+# the only way in, and it forwards to odysseus:7000 once the session cookie
+# checks out. See oauth2-proxy.yaml for why this is a reverse proxy rather than
+# a Traefik forwardAuth middleware.
+#
+# Everything here is namespace-local by necessity: Traefik runs without
+# --providers.kubernetescrd.allowCrossNamespace, so this Middleware and the
+# oauth2-proxy Service must sit in `odysseus` alongside the app. That constraint
+# happens to enforce the "scoped to Odysseus only" decision for free.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: odysseus-redirect-https
+  namespace: odysseus
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: odysseus-http
+  namespace: odysseus
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`odysseus.watchtower.local`)
+      middlewares:
+        - name: odysseus-redirect-https
+      services:
+        - name: oauth2-proxy
+          port: 4180
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: odysseus-https
+  namespace: odysseus
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    # One route for everything. oauth2-proxy serves /oauth2/* itself (login
+    # start, callback, sign-out) and reverse-proxies every other path to the
+    # app, answering unauthenticated requests with a 302 to Pocket ID.
+    - kind: Rule
+      match: Host(`odysseus.watchtower.local`)
+      services:
+        - name: oauth2-proxy
+          port: 4180
+  tls:
+    secretName: odysseus-tls
