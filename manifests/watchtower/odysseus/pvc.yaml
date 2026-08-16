@@ -24,3 +24,18 @@ spec:
             - key: kubernetes.io/hostname
               operator: In
               values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: chromadb-data
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: chromadb
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: chromadb-data
+  resources:
+    requests:
+      storage: 20Gi
