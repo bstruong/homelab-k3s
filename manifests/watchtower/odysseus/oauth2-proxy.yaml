@@ -74,6 +74,13 @@ spec:
             # Behind Traefik: trust X-Forwarded-* so the proxy builds correct
             # absolute URLs and logs the real client IP.
             - --reverse-proxy=true
+            # ...but only from inside the cluster. Without this, oauth2-proxy
+            # trusts 0.0.0.0/0 to supply X-Forwarded-*, so anything able to
+            # reach :4180 could spoof the client IP. 10.42.0.0/16 is k3s's
+            # default cluster CIDR (this node's slice is 10.42.0.0/24 and
+            # Traefik sits at 10.42.0.6); the /16 keeps working if a second
+            # node is ever added.
+            - --trusted-proxy-ip=10.42.0.0/16
             # Straight to Pocket ID rather than an interstitial "sign in with"
             # page — there is only one provider.
             - --skip-provider-button=true
