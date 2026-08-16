@@ -29,3 +29,52 @@ data:
       formats:
         - html
         - json
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: odysseus
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: odysseus
+data:
+  # --- Phase 1 backing services, reached over the cluster network ----------
+  # src/chroma_client.py builds chromadb.HttpClient(host=..., port=...), so
+  # CHROMADB_HOST is a bare host, not a URL.
+  CHROMADB_HOST: chromadb.odysseus.svc.cluster.local
+  CHROMADB_PORT: "8000"
+  SEARXNG_INSTANCE: http://searxng.odysseus.svc.cluster.local:8080
+
+  # --- storage -------------------------------------------------------------
+  # Relative path: the app's WORKDIR is /app and the PVC mounts at /app/data.
+  DATABASE_URL: sqlite:///./data/app.db
+
+  # --- LLM backend: Metrotower's Ollama over the LAN -----------------------
+  # Two different shapes, both required — they are not interchangeable:
+  #   LLM_HOST        bare host; src/embeddings.py interpolates it into
+  #                   http://{LLM_HOST}:11434/v1/embeddings
+  #   OLLAMA_BASE_URL full URL; read by src/model_discovery.py + app.py
+  # 192.168.1.245 is Metrotower on wlan0. NOTE: that is a DHCP address on
+  # WiFi — if it moves, this breaks. A static reservation is worth doing.
+  LLM_HOST: "192.168.1.245"
+  OLLAMA_BASE_URL: http://192.168.1.245:11434
+
+  # --- runtime identity ----------------------------------------------------
+  # The image entrypoint drops to PUID:PGID via gosu. 1000:1000 matches the
+  # owner of /mnt/appdata/odysseus on the host, which is what actually decides
+  # writability — fsGroup does not chown hostPath volumes.
+  PUID: "1000"
+  PGID: "1000"
+
+  # --- auth / web ----------------------------------------------------------
+  # Native bcrypt auth stays ON. oauth2-proxy will sit in front of it in the
+  # follow-up pass; it is defence in depth, not a replacement.
+  AUTH_ENABLED: "true"
+  LOCALHOST_BYPASS: "false"
+  # No ingress yet (ClusterIP only this pass), so no external origin to allow
+  # and cookies are not being served over TLS yet. Both get revisited when
+  # ingress.yaml lands.
+  ALLOWED_ORIGINS: http://localhost,http://127.0.0.1
+  SECURE_COOKIES: "false"
+
+  ANONYMIZED_TELEMETRY: "FALSE"
