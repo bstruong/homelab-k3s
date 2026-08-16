@@ -1,0 +1,112 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odysseus
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: odysseus
+spec:
+  replicas: 1
+  strategy:
+    # SQLite on RWO hostPath — never two writers.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: odysseus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: odysseus
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        # Deliberately NOT runAsNonRoot, unlike the rest of the repo. The
+        # image entrypoint (docker/entrypoint.sh) runs groupadd/useradd for
+        # PUID:PGID, repairs ownership on /app/data and /app/logs, and only
+        # then gosu-drops to that uid. All three need root. Handing it a
+        # non-root uid makes the entrypoint fail before uvicorn ever starts.
+        # The process serving traffic is still unprivileged (1000:1000).
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: odysseus
+          # Pinned to the immutable dev tag matching the restored fork/dev
+          # mirror. Deliberately NOT :dev — that floats and would silently
+          # move under us on the next upstream push.
+          image: ghcr.io/bstruong/odysseus:1.0.2-dev.2e2bb52
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7000
+          envFrom:
+            - configMapRef:
+                name: odysseus
+            - secretRef:
+                name: odysseus
+          securityContext:
+            allowPrivilegeEscalation: false
+            # No `add:` here on purpose — the namespace enforces baseline PSA,
+            # which permits dropping anything but only allows adding
+            # NET_BIND_SERVICE. So instead of drop:[ALL] + add-back, we keep
+            # the runtime default set and drop what the entrypoint does not
+            # need. Retained: CHOWN, DAC_OVERRIDE, FOWNER (ownership repair),
+            # SETUID, SETGID (gosu drop).
+            capabilities:
+              drop:
+                - AUDIT_WRITE
+                - FSETID
+                - KILL
+                - MKNOD
+                - NET_BIND_SERVICE
+                - NET_RAW
+                - SETFCAP
+                - SETPCAP
+                - SYS_CHROOT
+            # Root filesystem stays writable: the entrypoint writes
+            # /etc/passwd and /etc/group via useradd/groupadd on every start.
+            readOnlyRootFilesystem: false
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          readinessProbe:
+            httpGet:
+              # /api/health is in the auth-exempt list (app.py:266), so this
+              # works with AUTH_ENABLED=true.
+              path: /api/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          startupProbe:
+            # Cold start pulls a 686 MB image and initialises SQLite, the
+            # vector clients and the MCP tool registry. Generous budget so a
+            # slow first boot is not mistaken for a crash: 30 x 10s = 5 min.
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: odysseus-data
