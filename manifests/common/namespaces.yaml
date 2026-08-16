@@ -55,3 +55,14 @@ metadata:
   labels:
     homelab.watchtower/stack: watchtower
     pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odysseus
+  labels:
+    homelab.watchtower/stack: watchtower
+    # baseline, not restricted: the Odysseus app container starts as
+    # root and drops to PUID/PGID via gosu, which restricted forbids.
+    # ChromaDB and SearXNG are both restricted-compliant regardless.
+    pod-security.kubernetes.io/enforce: baseline
