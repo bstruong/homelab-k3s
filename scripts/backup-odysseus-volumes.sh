@@ -40,6 +40,18 @@ KEEP=7
 # is corrected. A static reservation would fix that properly.
 REMOTE_HOST="${ODYSSEUS_BACKUP_REMOTE:-brian@192.168.1.245}"
 REMOTE_DIR="${ODYSSEUS_BACKUP_REMOTE_DIR:-backups/watchtower/odysseus}"
+REMOTE_PORT="${ODYSSEUS_BACKUP_REMOTE_PORT:-22}"
+
+# Alerting. ntfy is only reachable from this host by ClusterIP: the topic
+# hostname ntfy.watchtower.local resolves via AdGuard, which watchtower
+# itself does not use, and the homelab CA is not in this host's trust
+# store — so the pretty URL fails from here even though it works from
+# every other machine. The IP is looked up through kubectl at run time
+# rather than hardcoded, since it changes if the Service is recreated.
+NTFY_NAMESPACE="${ODYSSEUS_NTFY_NAMESPACE:-monitoring}"
+NTFY_SERVICE="${ODYSSEUS_NTFY_SERVICE:-ntfy}"
+NTFY_TOPIC="${ODYSSEUS_NTFY_TOPIC:-watchtower-alerts}"
+NTFY_TOKEN_FILE="${ODYSSEUS_NTFY_TOKEN_FILE:-$HOME/.config/ntfy/backup-token}"
 
 # deployment:source-directory pairs
 VOLUMES=(
@@ -54,6 +66,65 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 LOG="${BACKUP_ROOT}/backup.log"
 
 log() { printf '%s %s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$*" | tee -a "$LOG" >&2; }
+
+# Best-effort push notification. Never fails the run: an alert that cannot be
+# delivered must not also destroy the backup that was taken successfully.
+alert() {
+  local title="$1" priority="$2" body="$3" addr token
+
+  addr="$(kubectl -n "$NTFY_NAMESPACE" get svc "$NTFY_SERVICE" \
+           -o jsonpath='{.spec.clusterIP}:{.spec.ports[0].port}' 2>/dev/null)" || addr=""
+  case "$addr" in
+    :*|"") log "WARNING: cannot resolve ${NTFY_SERVICE} service; alert NOT sent: ${title}"
+           return 0 ;;
+  esac
+
+  if [[ ! -r "$NTFY_TOKEN_FILE" ]]; then
+    log "WARNING: no ntfy token at ${NTFY_TOKEN_FILE}; alert NOT sent: ${title}"
+    return 0
+  fi
+  token="$(tr -d '[:space:]' < "$NTFY_TOKEN_FILE")"
+
+  if curl -fsS --max-time 15 \
+       -H "Authorization: Bearer ${token}" \
+       -H "Title: ${title}" \
+       -H "Priority: ${priority}" \
+       -H "Tags: floppy_disk" \
+       -d "$body" \
+       "http://${addr}/${NTFY_TOPIC}" >/dev/null 2>&1; then
+    log "ntfy alert sent (${priority}): ${title}"
+  else
+    log "WARNING: ntfy alert FAILED to send: ${title}"
+  fi
+}
+
+# Is the remote's SSH port actually open? This is what separates "the box is
+# off/unplugged" from "the box is up and rejecting us". Without it we are left
+# guessing from ssh's stderr, and ssh reports exit 255 for every one of these.
+tcp_open() {
+  timeout 10 bash -c ": >/dev/tcp/$1/$2" 2>/dev/null
+}
+
+# Map ssh stderr onto a cause. Only consulted when the port is known open, so
+# the connectivity patterns here are a backstop rather than the primary signal.
+classify_ssh_error() {
+  case "$1" in
+    *'REMOTE HOST IDENTIFICATION HAS CHANGED'*|*'Host key verification failed'*|\
+    *'key for'*'has changed'*|*'No RSA host key is known'*)
+      printf 'hostkey' ;;
+    *'Permission denied'*|*'Too many authentication failures'*|\
+    *'no matching host key type'*|*'no mutual signature algorithm'*|\
+    *'Authentication failed'*|*'not accessible'*|*'UNPROTECTED PRIVATE KEY'*)
+      printf 'auth' ;;
+    *'Connection refused'*|*'No route to host'*|*'Connection timed out'*|\
+    *'Operation timed out'*|*'Network is unreachable'*|\
+    *'Name or service not known'*|*'Could not resolve hostname'*|\
+    *'Temporary failure in name resolution'*)
+      printf 'unreachable' ;;
+    *)
+      printf 'unknown' ;;
+  esac
+}
 
 mkdir -p "$BACKUP_ROOT"
 
@@ -144,15 +215,36 @@ log "pods scaled back up"
 # The whole point of this script. A copy that stays on the same disk as the
 # original protects against app-level corruption and fat-fingering, but not
 # against the disk dying, which is the failure this is really guarding against.
-if ssh -o BatchMode=yes -o ConnectTimeout=10 "$REMOTE_HOST" \
-       "mkdir -p '${REMOTE_DIR}'" >/dev/null 2>&1; then
+# A failure to reach the remote is NOT all one thing, and the difference decides
+# whether anyone ever finds out. "Host is down" is transient and self-healing —
+# tonight's run misses, tomorrow's catches up. A rejected key or a changed host
+# key is a permanent misconfiguration: every subsequent run fails the same way,
+# and if that is a warning with exit 0, cron reports success forever while
+# nothing ships. That is exactly how this went unnoticed for a day.
+PUSH_FATAL=0
+remote_addr="${REMOTE_HOST##*@}"
+
+ssh_err=""
+if ssh_err="$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$REMOTE_HOST" \
+                  "mkdir -p '${REMOTE_DIR}'" 2>&1 >/dev/null)"; then
+  push_ok=1
+else
+  push_ok=0
+fi
+
+if [[ "$push_ok" -eq 1 ]]; then
   for f in "${created[@]}"; do
     if scp -q -o BatchMode=yes -o ConnectTimeout=10 "$f" "${REMOTE_HOST}:${REMOTE_DIR}/"; then
       log "shipped $(basename "$f") to ${REMOTE_HOST}:${REMOTE_DIR}/"
     else
-      log "WARNING: failed to ship $(basename "$f") — local copy retained"
+      log "ERROR: failed to ship $(basename "$f") — local copy retained"
+      PUSH_FATAL=1
     fi
   done
+  if [[ "$PUSH_FATAL" -eq 1 ]]; then
+    alert "Odysseus backup: off-host copy FAILED" "urgent" \
+      "Archives were created and verified on watchtower, but one or more could not be copied to ${REMOTE_HOST}. Local copies retained. Off-host protection is NOT in place for this run."
+  fi
   # Prune the remote to the same depth, per archive prefix.
   for entry in "${VOLUMES[@]}"; do
     name="$(basename "${entry#*:}")"
@@ -161,8 +253,38 @@ if ssh -o BatchMode=yes -o ConnectTimeout=10 "$REMOTE_HOST" \
       >/dev/null 2>&1 || log "WARNING: remote prune failed for ${name}"
   done
 else
-  log "WARNING: ${REMOTE_HOST} unreachable — archives are LOCAL ONLY this run."
-  log "         Off-host copies are the actual disk-failure protection."
+  if tcp_open "$remote_addr" "$REMOTE_PORT"; then
+    # The port answered, so the host is up and this is not a connectivity
+    # problem however ssh chose to word it.
+    cause="$(classify_ssh_error "$ssh_err")"
+    [[ "$cause" == "unreachable" ]] && cause="unknown"
+  else
+    cause="unreachable"
+  fi
+
+  case "$cause" in
+    unreachable)
+      # Transient and self-correcting; a warning is the right level.
+      log "WARNING: ${remote_addr}:${REMOTE_PORT} is not answering — host down or off the network."
+      log "         Archives are LOCAL ONLY this run; the next run should catch up."
+      alert "Odysseus backup: off-host copy skipped" "default" \
+        "${remote_addr}:${REMOTE_PORT} was unreachable, so tonight's archives stayed on watchtower only. Transient if the host is simply off; investigate if it repeats."
+      ;;
+    hostkey|auth|unknown)
+      case "$cause" in
+        hostkey) detail="the remote host key is unknown or has CHANGED (known_hosts mismatch)" ;;
+        auth)    detail="SSH authentication was REJECTED (key not authorized, or wrong user)" ;;
+        *)       detail="SSH failed for an unrecognised reason" ;;
+      esac
+      log "ERROR: off-host copy FAILED — ${detail}."
+      log "       ${remote_addr}:${REMOTE_PORT} is open, so this is configuration, not connectivity."
+      log "       ssh said: ${ssh_err//$'\n'/ | }"
+      log "       This will NOT fix itself. Archives are LOCAL ONLY until it is resolved."
+      alert "Odysseus backup: off-host copy BROKEN" "urgent" \
+        "${detail}. Host ${remote_addr}:${REMOTE_PORT} is reachable, so this is a misconfiguration that will repeat every night until fixed. Archives are local-only. ssh said: ${ssh_err}"
+      PUSH_FATAL=1
+      ;;
+  esac
 fi
 
 # --- prune local ------------------------------------------------------------
@@ -173,8 +295,41 @@ for entry in "${VOLUMES[@]}"; do
     while read -r old; do log "pruning $(basename "$old")"; rm -f "$old"; done
 done
 
+if [[ "$PUSH_FATAL" -eq 1 ]]; then
+  log "backup FAILED: archives exist locally (${created[*]}) but are NOT off-host"
+  exit 1
+fi
+
 log "backup complete: ${created[*]}"
 
+# --- ALERTING ---------------------------------------------------------------
+# Alerts publish to the same ntfy topic Uptime Kuma uses (watchtower-alerts).
+# The topic is deny-all, so a token is required. Create a dedicated identity
+# for backups rather than reusing kuma's, then store the token where this
+# script looks for it:
+#
+#   kubectl -n monitoring exec deploy/ntfy -- ntfy user add --role=user backup
+#   kubectl -n monitoring exec deploy/ntfy -- ntfy access backup watchtower-alerts rw
+#   kubectl -n monitoring exec deploy/ntfy -- ntfy token add backup
+#
+#   mkdir -p ~/.config/ntfy
+#   printf '%s' 'tk_...' > ~/.config/ntfy/backup-token
+#   chmod 600 ~/.config/ntfy/backup-token
+#
+# Without the token the script still works and still fails loudly via its exit
+# status — it just logs that the alert could not be sent. Alerting is additive,
+# never a dependency.
+#
+# --- EXIT STATUS ------------------------------------------------------------
+#   0  archives created, verified, and shipped off-host
+#   0  archives created and verified, remote genuinely unreachable (transient)
+#   1  archives created but the off-host copy is broken by misconfiguration
+#      (rejected key, changed host key, failed scp) — needs a human
+#   1  archiving itself failed
+#
+# Cron mails any output from a failing job, so a non-zero exit here is what
+# actually reaches you if ntfy is not configured.
+#
 # --- INSTALL ----------------------------------------------------------------
 # On watchtower, as brian (crond is active; no root needed):
 #
