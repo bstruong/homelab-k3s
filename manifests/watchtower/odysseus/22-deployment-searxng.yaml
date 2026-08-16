@@ -1,0 +1,109 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: searxng
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: searxng
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: searxng
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: searxng
+      annotations:
+        # Roll the pod when settings.yml changes — the entrypoint only reads
+        # it at boot and leaves an existing file alone.
+        checksum/settings: "json-formats-v1"
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      # Pinned, NOT :latest. 2026.6.2 crashes on boot with
+      # KeyError: 'default_doi_resolver' (searxng issue #1414). Bump only
+      # after verifying a newer tag boots clean.
+      securityContext:
+        # The image starts as root and su-execs down to searxng (977:977).
+        # Running as 977 from the start skips that entirely: entrypoint
+        # setup_ownership() only chowns when `id -u` is 0, so as non-root it
+        # just no-ops. That means NO added capabilities are needed — the
+        # CHOWN/SETGID/SETUID/DAC_OVERRIDE set the compose file grants exists
+        # only to support the root-then-drop path we are not using.
+        runAsNonRoot: true
+        runAsUser: 977
+        runAsGroup: 977
+        fsGroup: 977
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: searxng
+          image: docker.io/searxng/searxng:2026.5.31-7159b8aed
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            # Binds to server.secret_key. Fixed value from the SealedSecret,
+            # so it survives pod restarts instead of being regenerated (a
+            # rotating key invalidates preferences/state between restarts).
+            - name: SEARXNG_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: searxng
+                  key: secret-key
+            - name: SEARXNG_PORT
+              value: "8080"
+            - name: SEARXNG_BIND_ADDRESS
+              value: "0.0.0.0"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/searxng
+            - name: settings
+              mountPath: /etc/searxng/settings.yml
+              subPath: settings.yml
+              readOnly: true
+            - name: cache
+              mountPath: /var/cache/searxng
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+          resources:
+            requests:
+              cpu: 25m
+              # Measured idle RSS ~130 MiB.
+              memory: 192Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        # Stateless by design: no PVC. /etc/searxng must still be writable
+        # because the entrypoint may drop a settings.yml.new alongside the
+        # mounted file when the image ships a newer template.
+        - name: config
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        - name: settings
+          configMap:
+            name: searxng-settings
