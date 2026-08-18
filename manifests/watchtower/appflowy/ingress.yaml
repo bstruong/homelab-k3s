@@ -1,8 +1,17 @@
 ---
-# GoTrue is served under /gotrue, with the prefix stripped before it reaches
-# the service; everything else (REST + the /ws websocket) goes to
-# appflowy-cloud. Route order matters — the more specific rule needs the
-# higher priority.
+# Routing mirrors the path split in upstream's nginx/nginx.conf
+# (AppFlowy-IO/AppFlowy-Cloud): the API backend owns a fixed set of path
+# prefixes and the web UI serves everything else.
+#
+#   /gotrue  -> appflowy-gotrue  (prefix stripped)
+#   /api     -> appflowy-cloud   (REST; also covers /api/chat, /api/import and
+#                                 /api/workspace/*/publish, which upstream only
+#                                 splits out to tune buffering, not to reroute)
+#   /ws      -> appflowy-cloud   (websocket; clients connect to /ws/v2)
+#   /ai      -> appflowy-cloud
+#   /        -> appflowy-web
+#
+# Route order matters — the more specific rules need the higher priority.
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:
@@ -30,11 +39,17 @@ spec:
         - name: appflowy-gotrue
           port: 9999
     - kind: Rule
-      match: Host(`appflowy.watchtower.local`)
-      priority: 10
+      match: Host(`appflowy.watchtower.local`) && (PathPrefix(`/api`) || PathPrefix(`/ws`) || PathPrefix(`/ai`))
+      priority: 20
       services:
         - name: appflowy-cloud
           port: 8000
+    - kind: Rule
+      match: Host(`appflowy.watchtower.local`)
+      priority: 10
+      services:
+        - name: appflowy-web
+          port: 80
 ---
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -53,10 +68,16 @@ spec:
         - name: appflowy-gotrue
           port: 9999
     - kind: Rule
-      match: Host(`appflowy.watchtower.local`)
-      priority: 10
+      match: Host(`appflowy.watchtower.local`) && (PathPrefix(`/api`) || PathPrefix(`/ws`) || PathPrefix(`/ai`))
+      priority: 20
       services:
         - name: appflowy-cloud
           port: 8000
+    - kind: Rule
+      match: Host(`appflowy.watchtower.local`)
+      priority: 10
+      services:
+        - name: appflowy-web
+          port: 80
   tls:
     secretName: appflowy-tls
