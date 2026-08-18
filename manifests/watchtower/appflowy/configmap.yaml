@@ -13,6 +13,11 @@ data:
   # externally reachable base URL, so it must match the IngressRoute host rather
   # than any in-cluster Service name.
   APPFLOWY_WEB_URL: https://appflowy.watchtower.local
+  # The same externally reachable base URL, read by the periodic license check.
+  # Without it appflowy-cloud logs "Check license error: APPFLOWY_BASE_URL is
+  # not set" every 30s. Upstream deploy.env defines both as ${SCHEME}://${FQDN},
+  # so the two values are intentionally identical.
+  APPFLOWY_BASE_URL: https://appflowy.watchtower.local
   APPFLOWY_REDIS_URI: redis://appflowy-redis:6379
   APPFLOWY_GOTRUE_BASE_URL: http://appflowy-gotrue:9999
   APPFLOWY_GOTRUE_JWT_EXP: "7200"
