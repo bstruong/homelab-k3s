@@ -33,10 +33,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: odysseus
-          # Pinned to the immutable dev tag matching the restored fork/dev
-          # mirror. Deliberately NOT :dev — that floats and would silently
-          # move under us on the next upstream push.
-          image: ghcr.io/bstruong/odysseus:1.0.2-dev.2e2bb52
+          # Pinned to an immutable tag built from fork branch
+          # dev-merged-2026-08-17 (merge commit 64589cd: upstream 032967af
+          # merged into the local dev work). Deliberately NOT :dev — that
+          # floats and would silently move under us on the next upstream
+          # push. NOTE: this is ahead of fork/dev, which is kept as a pure
+          # mirror of origin/dev and does not contain this merge.
+          image: ghcr.io/bstruong/odysseus:1.0.2-merged.64589cd
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
