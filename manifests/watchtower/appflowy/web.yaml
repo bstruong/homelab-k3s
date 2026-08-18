@@ -1,0 +1,102 @@
+---
+# The AppFlowy web UI. Unlike the other components in this namespace this image
+# cannot run under the usual hardened profile:
+#
+#   * Its entrypoint injects window.__APP_CONFIG__ into the built index.html with
+#     an in-place `sed -i`, so readOnlyRootFilesystem must stay false.
+#   * It runs supervisord managing nginx (listening on :80, workers dropping to
+#     www-data) alongside a Bun SSR server on :3000, so it needs uid 0 plus
+#     NET_BIND_SERVICE / SETUID / SETGID.
+#
+# Everything else is still locked down: no privilege escalation, all other
+# capabilities dropped, no service-account token.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appflowy-web
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy-web
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: appflowy-web
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: appflowy-web
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 0
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: appflowy-web
+          image: appflowyinc/appflowy_web:latest
+          # NOT envFrom the shared `appflowy` ConfigMap. That ConfigMap sets
+          # APPFLOWY_GOTRUE_BASE_URL to the in-cluster Service URL, which is
+          # correct for appflowy-cloud but wrong here: these three values are
+          # baked into the HTML and read by the browser, so they must be the
+          # externally reachable URLs. The entrypoint exits 1 if any is unset.
+          env:
+            - name: APPFLOWY_BASE_URL
+              value: https://appflowy.watchtower.local
+            - name: APPFLOWY_GOTRUE_BASE_URL
+              value: https://appflowy.watchtower.local/gotrue
+            - name: APPFLOWY_WS_BASE_URL
+              value: wss://appflowy.watchtower.local/ws/v2
+          ports:
+            - name: http
+              containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "SETUID", "SETGID", "NET_BIND_SERVICE"]
+          # /health is served by the image's own nginx config and is explicitly
+          # intended for Kubernetes probes.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: appflowy-web
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: appflowy-web
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: appflowy-web
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
