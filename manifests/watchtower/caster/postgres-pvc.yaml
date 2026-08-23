@@ -1,0 +1,41 @@
+---
+# The PersistentVolume backing the StatefulSet's volumeClaimTemplate.
+#
+# Both halves are needed, which is easy to get wrong: the volumeClaimTemplate
+# in postgres-statefulset.yaml generates the PVC, and this hand-written PV
+# pre-binds to that generated PVC through claimRef. The `appdata` StorageClass
+# has no provisioner, so without a matching PV the generated PVC would sit
+# Pending forever. This is exactly the arrangement appflowy-postgres uses — its
+# PV is in appflowy/pvc.yaml with a claimRef to data-appflowy-postgres-0 —
+# rather than the standalone PV+PVC pair the registry uses, because the
+# registry is a Deployment and has no volumeClaimTemplate.
+#
+# There is no separate PersistentVolumeClaim object in this file on purpose.
+# Writing one would collide with the PVC the StatefulSet generates.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: caster-postgres
+  labels:
+    app.kubernetes.io/name: caster-postgres
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/caster/postgres
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: caster
+    # StatefulSet volumeClaimTemplates generate PVC names of the form
+    # <template>-<statefulset>-<ordinal>.
+    name: data-caster-postgres-0
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]

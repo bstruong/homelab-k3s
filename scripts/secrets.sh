@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik vaultwarden crowdsec beszel paperless-ngx appflowy syncthing registry"
+ALL_APPS="traefik vaultwarden crowdsec beszel paperless-ngx appflowy syncthing registry caster"
 
 MODE=""
 SHOW=false
@@ -110,6 +110,7 @@ app_namespace() {
     paperless-ngx|appflowy) echo docs ;;
     syncthing)         echo sync ;;
     registry)          echo infra ;;
+    caster)            echo caster ;;
     *) die "unknown app: $1 (known: ${ALL_APPS})" ;;
   esac
 }
@@ -224,6 +225,19 @@ app_literals() {
       hash="$(htpasswd -nbB brian "${pw}")"
       printf 'summary:Watchtower registry    brian / %s\n' "${pw}"
       printf 'literal:htpasswd=%s\n' "${hash}"
+      ;;
+
+    caster)
+      # A plain random password, not an htpasswd/bcrypt hash like the registry
+      # above: Postgres stores its own hash internally, so what it and Rails
+      # both need here is the cleartext. The same value is consumed twice under
+      # two names -- POSTGRES_PASSWORD in the caster-postgres StatefulSet, and
+      # CASTER_DATABASE_PASSWORD in the app Deployment, which is the only
+      # credential config/database.yml reads (username is hardcoded `caster`).
+      local pw
+      pw="$(gen 32)"
+      printf 'summary:CASTER postgres      caster / %s\n' "${pw}"
+      printf 'literal:postgres-password=%s\n' "${pw}"
       ;;
   esac
 }
@@ -372,6 +386,7 @@ appflowy        docs         appflowy                 postgres-password, databas
                                                       minio-access-key, minio-secret-key
 syncthing       sync         syncthing                gui-apikey
 registry        infra        registry-htpasswd        htpasswd
+caster          caster       caster                   postgres-password
 
 Credentials that are NOT Kubernetes Secrets, because the app owns its own
 credential store and sets it up through a first-run wizard:
