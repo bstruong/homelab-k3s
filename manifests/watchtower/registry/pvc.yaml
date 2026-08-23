@@ -1,0 +1,45 @@
+---
+# Image layers for the private registry. Sized larger than the other apps
+# because container images are the payload here, not configuration — but the
+# capacity is nominal: the `appdata` StorageClass has no provisioner, so the
+# real limit is free space on /mnt/appdata.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: registry-data
+  labels:
+    app.kubernetes.io/name: registry
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/registry
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: infra
+    name: registry-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: registry-data
+  namespace: infra
+  labels:
+    app.kubernetes.io/name: registry
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: registry-data
+  resources:
+    requests:
+      storage: 50Gi
