@@ -1,0 +1,100 @@
+---
+# Private container registry for the Watchtower cluster.
+#
+# Auth: HTTP Basic against an htpasswd file, which the registry:2 image reads
+# from disk on every request. The file is mounted from the `registry-htpasswd`
+# Secret (see sealedsecret.yaml) rather than baked into the image or a
+# ConfigMap, because the bcrypt hash is a credential.
+#
+# registry:2 requires *bcrypt* specifically — it rejects the MD5/apr1 hashes
+# that `htpasswd` writes by default. The one in this Secret is bcrypt cost 10.
+#
+# TLS is terminated by Traefik (see ingress.yaml); the registry itself speaks
+# plain HTTP inside the cluster, which is why REGISTRY_HTTP_TLS_* is unset.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: registry
+  namespace: infra
+  labels:
+    app.kubernetes.io/name: registry
+spec:
+  replicas: 1
+  strategy:
+    # ReadWriteOnce hostPath volume — two pods must never hold it at once.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: registry
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: registry
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: registry
+          image: registry:2.8.3
+          env:
+            - name: REGISTRY_AUTH
+              value: htpasswd
+            - name: REGISTRY_AUTH_HTPASSWD_REALM
+              value: "Watchtower Registry"
+            - name: REGISTRY_AUTH_HTPASSWD_PATH
+              value: /auth/htpasswd
+            # Explicit rather than relying on the image default, so a future
+            # base-image change cannot silently relocate the data directory
+            # away from the PVC.
+            - name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY
+              value: /var/lib/registry
+          ports:
+            - name: http
+              containerPort: 5000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/registry
+            - name: auth
+              mountPath: /auth
+              readOnly: true
+          # TCP probes, not httpGet: with auth enabled every HTTP path worth
+          # probing (/v2/) answers 401, which kubelet treats as a failure.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 30
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: registry-data
+        - name: auth
+          secret:
+            secretName: registry-htpasswd
+            defaultMode: 0444
+            items:
+              - key: htpasswd
+                path: htpasswd

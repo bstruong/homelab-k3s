@@ -1,0 +1,53 @@
+# k3s / containerd registry trust + auth for registry.watchtower.local
+#
+# THIS IS NOT A KUBERNETES MANIFEST. It is deliberately named
+# `.node-example` rather than `.yaml` so that `kubectl apply -f` on this
+# directory (which deploy.sh does) skips it.
+#
+# Install it on the node as:
+#     /etc/rancher/k3s/registries.yaml      (root:root, chmod 0600)
+#
+# Then restart k3s so containerd re-reads it. k3s has no reload for this file:
+#     sudo systemctl restart k3s
+#
+# Restarting k3s restarts containerd and therefore every pod on the node.
+# There is no in-place reload — the containerd config is templated from this
+# file at k3s startup only.
+#
+# WARNING: the password below is stored in PLAINTEXT. That is unavoidable —
+# containerd has no credential-helper support in k3s's registries.yaml. Keep
+# the file 0600 root-owned; it is why this example ships with a placeholder
+# instead of the real value.
+
+mirrors:
+  "registry.watchtower.local":
+    endpoint:
+      - "https://registry.watchtower.local"
+
+configs:
+  "registry.watchtower.local":
+    auth:
+      username: brian
+      # Paste from Vaultwarden ("Watchtower Container Registry"). Do NOT commit
+      # this file with the real value substituted.
+      password: "REPLACE_WITH_REGISTRY_PASSWORD"
+    tls:
+      # Public cert of the Watchtower Homelab Root CA — the same CA that issues
+      # every *.watchtower.local leaf. containerd needs it to validate the
+      # Traefik-terminated TLS on the registry route.
+      #
+      # containerd uses its OWN copy of the CA cert, deliberately: pointing at
+      # /mnt/appdata/homelab-ca/ca.crt would make k3s's registry trust depend on
+      # that mount being present at startup. If it were ever late or missing,
+      # every pull from this registry would fail TLS verification.
+      #
+      # This file is NOT created by anything automatic — copy it into place
+      # manually before k3s reads this config, or the path below does not exist:
+      #
+      #     sudo cp /mnt/appdata/homelab-ca/ca.crt /etc/rancher/k3s/watchtower-ca.crt
+      #     sudo chown root:root /etc/rancher/k3s/watchtower-ca.crt
+      #     sudo chmod 0644 /etc/rancher/k3s/watchtower-ca.crt
+      #
+      # 0644, not 0600: it is a public CA certificate, and only ca.key is
+      # sensitive. Re-copy it if the CA is ever rotated.
+      ca_file: /etc/rancher/k3s/watchtower-ca.crt
