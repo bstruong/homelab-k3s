@@ -66,3 +66,17 @@ metadata:
     # root and drops to PUID/PGID via gosu, which restricted forbids.
     # ChromaDB and SearXNG are both restricted-compliant regardless.
     pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: infra
+  labels:
+    homelab.watchtower/stack: watchtower
+    # restricted, not baseline: the registry pod runs as uid 1000, drops ALL
+    # capabilities and sets seccomp RuntimeDefault, so it already complies.
+    # The hostPath-backed PV is not a problem — restricted constrains the
+    # pod's volume *types* (persistentVolumeClaim is allowed), not what the
+    # PV happens to be backed by. Same arrangement as vaultwarden in
+    # `identity`, which is also restricted.
+    pod-security.kubernetes.io/enforce: restricted

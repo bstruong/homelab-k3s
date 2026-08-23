@@ -1,0 +1,42 @@
+---
+# registry.watchtower.local
+#
+# No BasicAuth middleware here on purpose. The registry does its own auth and
+# the Docker/containerd clients speak the token-ish Basic challenge flow to it
+# directly; adding a second Basic layer at Traefik would make `docker login`
+# and containerd's `configs.auth` fail against the wrong realm.
+#
+# Both an HTTP and an HTTPS route exist, matching the other apps. containerd
+# is configured to use the HTTPS one (see registries.yaml.node-example).
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: registry-http
+  namespace: infra
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`registry.watchtower.local`)
+      services:
+        - name: registry
+          port: 5000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: registry-https
+  namespace: infra
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`registry.watchtower.local`)
+      services:
+        - name: registry
+          port: 5000
+  tls:
+    # Leaf cert issued by the Watchtower Homelab Root CA, sealed the same way
+    # every other app's cert is. Must include registry.watchtower.local as a
+    # SAN. Create with tls-sealedsecret.yaml (not yet generated).
+    secretName: registry-tls
