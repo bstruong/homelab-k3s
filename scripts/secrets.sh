@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik vaultwarden crowdsec beszel paperless-ngx appflowy syncthing"
+ALL_APPS="traefik vaultwarden crowdsec beszel paperless-ngx appflowy syncthing registry"
 
 MODE=""
 SHOW=false
@@ -109,6 +109,7 @@ app_namespace() {
     crowdsec|beszel)   echo monitoring ;;
     paperless-ngx|appflowy) echo docs ;;
     syncthing)         echo sync ;;
+    registry)          echo infra ;;
     *) die "unknown app: $1 (known: ${ALL_APPS})" ;;
   esac
 }
@@ -118,6 +119,7 @@ app_secret_name() {
   case "$1" in
     traefik) echo traefik-dashboard-auth ;;
     beszel)  echo beszel-agent ;;
+    registry) echo registry-htpasswd ;;
     *)       echo "$1" ;;
   esac
 }
@@ -203,6 +205,25 @@ app_literals() {
       apikey="$(gen 32)"
       printf 'summary:Syncthing API key      %s\n' "${apikey}"
       printf 'literal:gui-apikey=%s\n' "${apikey}"
+      ;;
+
+    registry)
+      # The registry re-reads this htpasswd file on every request, and
+      # registry:2 accepts *bcrypt* only -- it rejects the MD5/apr1 hash that
+      # the traefik case above falls back to when htpasswd is missing. openssl
+      # cannot produce bcrypt at all, so there is no fallback here: a missing
+      # htpasswd is a hard failure rather than a hash the registry would refuse
+      # at runtime, long after this script reported success.
+      #
+      # The username is brian, matching the `configs` block in
+      # registries.yaml.node-example. Changing it here means changing it there.
+      local pw hash
+      command -v htpasswd >/dev/null 2>&1 \
+        || die "htpasswd not found; it is required to seal registry (bcrypt, which openssl cannot generate). Install apache2-utils / httpd-tools."
+      pw="$(gen 24)"
+      hash="$(htpasswd -nbB brian "${pw}")"
+      printf 'summary:Watchtower registry    brian / %s\n' "${pw}"
+      printf 'literal:htpasswd=%s\n' "${hash}"
       ;;
   esac
 }
@@ -350,6 +371,7 @@ appflowy        docs         appflowy                 postgres-password, databas
                                                       jwt-secret, gotrue-admin-password,
                                                       minio-access-key, minio-secret-key
 syncthing       sync         syncthing                gui-apikey
+registry        infra        registry-htpasswd        htpasswd
 
 Credentials that are NOT Kubernetes Secrets, because the app owns its own
 credential store and sets it up through a first-run wizard:
