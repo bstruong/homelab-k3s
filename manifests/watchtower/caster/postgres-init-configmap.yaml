@@ -1,0 +1,54 @@
+---
+# Creates the two databases POSTGRES_DB cannot.
+#
+# The official postgres image runs everything in /docker-entrypoint-initdb.d
+# "only if you start the container with a data directory that is empty; any
+# pre-existing database will be left untouched on container startup". Files may
+# be *.sql, *.sql.gz or *.sh, and run "in sorted name order as defined by the
+# current locale". The image's docs also recommend that psql inside a *.sh
+# script be run "as POSTGRES_USER by using the --username flag" — hence the
+# shell form below rather than plain SQL.
+#
+# ONE-SHOT, AND THAT IS THE RISK. The same docs warn: "if one of your
+# /docker-entrypoint-initdb.d scripts fails (which will cause the entrypoint
+# script to exit) and your orchestrator restarts the container with the already
+# initialized data directory, it will not continue on with your scripts." A
+# StatefulSet restarting a crashed pod is exactly that orchestrator. If this
+# script ever fails partway, the cache/queue databases will be missing forever
+# and the pod will come up looking healthy. Repair by hand rather than by
+# deleting the PVC:
+#
+#   kubectl exec -n caster caster-postgres-0 -- \
+#     psql -U caster -d caster_production \
+#       -c 'CREATE DATABASE caster_production_cache OWNER caster'
+#
+# The `IF NOT EXISTS` guard below is what keeps that manual repair and any
+# re-run harmless — CREATE DATABASE has no IF NOT EXISTS of its own, so the
+# existence check is done in SQL first.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: caster-postgres-initdb
+  namespace: caster
+  labels:
+    app.kubernetes.io/name: caster-postgres
+data:
+  01-create-additional-databases.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    # solid_cache and solid_queue each own a separate database, declared as the
+    # `cache` and `queue` connections in config/database.yml. Both are owned by
+    # the same role the app connects as.
+    for db in caster_production_cache caster_production_queue; do
+      exists="$(psql --username "${POSTGRES_USER}" --dbname "${POSTGRES_DB}" \
+                     --no-align --tuples-only \
+                     -c "SELECT 1 FROM pg_database WHERE datname = '${db}'")"
+      if [ "${exists}" = "1" ]; then
+        echo "database ${db} already exists, skipping"
+      else
+        echo "creating database ${db}"
+        psql --username "${POSTGRES_USER}" --dbname "${POSTGRES_DB}" \
+             -c "CREATE DATABASE ${db} OWNER ${POSTGRES_USER}"
+      fi
+    done

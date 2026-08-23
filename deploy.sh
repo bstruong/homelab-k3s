@@ -29,7 +29,7 @@ ONLY_APP=""
 # The app namespaces. Traefik also lives in kube-system, but it is k3s's own
 # bundled install rather than something this repo deploys, so it is never waited
 # on here. This repo now owns no kube-system workloads at all.
-NAMESPACES=(adguard identity monitoring media docs sync home infra)
+NAMESPACES=(adguard identity monitoring media docs sync home infra caster)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -53,6 +53,7 @@ SECRET_SPECS=(
   "appflowy|docs|appflowy|postgres-password?,database-url?,jwt-secret?,gotrue-admin-password?,minio-access-key?,minio-secret-key?"
   "syncthing|sync|syncthing|gui-apikey?"
   "registry|infra|registry-htpasswd|htpasswd?"
+  "caster|caster|caster|postgres-password"
 )
 
 # What actually happens when an optional secret is missing.
@@ -146,6 +147,7 @@ check_appdata() {
   sudo mkdir -p ${APPDATA_ROOT}/{paperless-ngx,beszel,crowdsec,uptime-kuma}
   sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,media,registry}
   sudo mkdir -p ${APPDATA_ROOT}/appflowy/{postgres,minio}
+  sudo mkdir -p ${APPDATA_ROOT}/caster/postgres
 
   # Apps running as uid 1000. Each directory is named explicitly on purpose:
   # a recursive chown of ${APPDATA_ROOT} itself would also rewrite k3s's
@@ -156,6 +158,7 @@ check_appdata() {
   sudo chown -R 1000:1000 ${APPDATA_ROOT}/registry                  # registry runs as uid 1000
   sudo chown -R 1000:1000 ${APPDATA_ROOT}/appflowy/minio
   sudo chown -R 999:999   ${APPDATA_ROOT}/appflowy/postgres  # postgres runs as uid 999
+  sudo chown -R 999:999   ${APPDATA_ROOT}/caster/postgres    # postgres runs as uid 999
 
   # Apps whose container runs as uid 0. These MUST be root-owned. Every
   # container here drops ALL capabilities, so none of them holds

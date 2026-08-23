@@ -80,3 +80,16 @@ metadata:
     # PV happens to be backed by. Same arrangement as vaultwarden in
     # `identity`, which is also restricted.
     pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: caster
+  labels:
+    homelab.watchtower/stack: watchtower
+    # restricted: Postgres runs as uid 999 and the Rails app as uid 1000, both
+    # non-root, both dropping ALL capabilities with seccomp RuntimeDefault.
+    # Same posture as `infra` and `identity`. Note this is CASTER's own
+    # namespace rather than a shared one — its Postgres is single-tenant, not
+    # the `docs` instance, which belongs to AppFlowy.
+    pod-security.kubernetes.io/enforce: restricted
