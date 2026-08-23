@@ -1,0 +1,25 @@
+---
+# Headless (clusterIP: None), matching appflowy-postgres. A StatefulSet's
+# serviceName must point at a headless Service for the per-pod DNS name
+# (caster-postgres-0.caster-postgres) to exist; with one replica the short name
+# below is what the app actually uses.
+#
+# Rails reaches this via DATABASE_HOST=caster-postgres — same namespace, so the
+# bare name resolves. No external route: Postgres is never exposed through
+# Traefik.
+apiVersion: v1
+kind: Service
+metadata:
+  name: caster-postgres
+  namespace: caster
+  labels:
+    app.kubernetes.io/name: caster-postgres
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: caster-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres

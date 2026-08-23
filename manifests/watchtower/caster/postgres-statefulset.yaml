@@ -1,0 +1,132 @@
+---
+# CASTER's Postgres. Single-tenant: this instance exists only for CASTER, and
+# nothing else connects to it. That is a deliberate reversal of the earlier
+# "shared instance" plan — there is no shared Postgres on this cluster. The one
+# other Postgres here (appflowy-postgres in `docs`) is AppFlowy's own backing
+# store, named and configured for AppFlowy's needs, so pointing a second app at
+# it would couple CASTER's uptime to AppFlowy's namespace and lifecycle.
+#
+# Stock postgres:16 rather than the pgvector image AppFlowy uses — CASTER needs
+# no vector or uuid-ossp extensions, only plain SQL plus PERCENTILE_CONT, which
+# is core Postgres.
+#
+# THREE databases are required, because config/database.yml declares three
+# connections in production: primary (caster_production), cache
+# (caster_production_cache) and queue (caster_production_queue), the latter two
+# backing solid_cache and solid_queue. POSTGRES_DB creates exactly one, so the
+# other two come from the init script in postgres-init-configmap.yaml.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: caster-postgres
+  namespace: caster
+  labels:
+    app.kubernetes.io/name: caster-postgres
+spec:
+  serviceName: caster-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caster-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caster-postgres
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # uid/gid of the postgres user inside the image.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            # Creating the superuser as `caster` rather than `postgres` matches
+            # what Rails connects as: config/database.yml hardcodes
+            # `username: caster` in the production block, not an env var.
+            - name: POSTGRES_USER
+              value: caster
+            - name: POSTGRES_DB
+              value: caster_production
+            # PGDATA lives in a subdirectory of the mount on purpose: the
+            # volume root is not empty (lost+found on ext4), and initdb refuses
+            # to run in a non-empty directory.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: caster
+                  key: postgres-password
+          ports:
+            - name: postgres
+              containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            # Read on first init only; see postgres-init-configmap.yaml.
+            - name: initdb
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+          # -U caster, not -U postgres: no `postgres` role exists in this
+          # instance, because POSTGRES_USER renamed the superuser.
+          #
+          # -d is not optional here. pg_isready defaults its dbname to the
+          # USERNAME when omitted, and there is no database called `caster`
+          # -- POSTGRES_DB is caster_production. Without -d every probe
+          # opens a connection the server rejects, logging `FATAL:
+          # database "caster" does not exist` every 10s forever. The probe
+          # still passes (pg_isready returns 0 because the server answered),
+          # so this is silent log noise rather than a health fault.
+          # AppFlowy's equivalent gets away with `-U postgres` alone only
+          # because its POSTGRES_USER and POSTGRES_DB are both `postgres`.
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "caster", "-d", "caster_production"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "caster", "-d", "caster_production"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        - name: initdb
+          configMap:
+            name: caster-postgres-initdb
+            defaultMode: 0555
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: appdata
+        resources:
+          requests:
+            storage: 20Gi
