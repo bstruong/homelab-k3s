@@ -53,7 +53,7 @@ SECRET_SPECS=(
   "appflowy|docs|appflowy|postgres-password?,database-url?,jwt-secret?,gotrue-admin-password?,minio-access-key?,minio-secret-key?"
   "syncthing|sync|syncthing|gui-apikey?"
   "registry|infra|registry-htpasswd|htpasswd?"
-  "caster|caster|caster|postgres-password"
+  "caster|caster|caster|postgres-password,secret-key-base"
 )
 
 # What actually happens when an optional secret is missing.

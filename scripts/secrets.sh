@@ -228,16 +228,57 @@ app_literals() {
       ;;
 
     caster)
-      # A plain random password, not an htpasswd/bcrypt hash like the registry
-      # above: Postgres stores its own hash internally, so what it and Rails
-      # both need here is the cleartext. The same value is consumed twice under
-      # two names -- POSTGRES_PASSWORD in the caster-postgres StatefulSet, and
+      # POSTGRES_PASSWORD in the caster-postgres StatefulSet, and
       # CASTER_DATABASE_PASSWORD in the app Deployment, which is the only
       # credential config/database.yml reads (username is hardcoded `caster`).
-      local pw
-      pw="$(gen 32)"
+      #
+      # TWO keys, and they behave very differently on a reseal.
+      #
+      # postgres-password is REUSED, not regenerated, whenever the live Secret
+      # already has one. That is not a style preference -- do_seal with --force
+      # rebuilds the whole Secret from this function's output, so a bare
+      # `gen 32` here would mint a NEW password on every --force. Postgres only
+      # consumes POSTGRES_PASSWORD at initdb; the role's password already lives
+      # in the existing PVC. A rotated value would therefore never reach the
+      # database, and Rails would fail to authenticate against a database whose
+      # password nothing had actually changed. Reading the live value back
+      # keeps --force idempotent, which is what makes adding a second key to
+      # an already-sealed app safe.
+      #
+      # secret-key-base is freshly generated, and unlike postgres-password it
+      # SHOULD rotate on a --force. Rails resolves this value as
+      #     ENV["SECRET_KEY_BASE"] || credentials.secret_key_base || ...
+      # (railties 8.1.3.1, Rails::Application::Configuration#secret_key_base),
+      # so setting the env var short-circuits credentials entirely and
+      # config/master.key is never consulted. That is the point: master.key
+      # does not exist in any checkout we have, and nothing in this app reads
+      # Rails.application.credentials for anything else.
+      #
+      # 64 characters, matching the house length used for every other
+      # secret-key-shaped value in this file (paperless-ngx secret-key,
+      # vaultwarden admin-token, appflowy jwt-secret). Note gen() emits
+      # [A-Za-z0-9], NOT hex, so this is ~381 bits -- shorter than the 128 hex
+      # chars (512 bits) Rails generates by default, and far beyond any
+      # practical attack either way.
+      #
+      # Rotating it invalidates existing signed cookies and sessions, which
+      # logs everyone out. Harmless here and worth knowing before a --force.
+      local pw skb
+
+      # Prefer whatever is already live, so a reseal cannot silently rotate it.
+      pw="$(kubectl get secret caster -n caster \
+              -o jsonpath='{.data.postgres-password}' 2>/dev/null \
+            | base64 -d 2>/dev/null || true)"
+      if [[ -z "${pw}" ]]; then
+        pw="$(gen 32)"
+      fi
+
+      skb="$(gen 64)"
+
       printf 'summary:CASTER postgres      caster / %s\n' "${pw}"
       printf 'literal:postgres-password=%s\n' "${pw}"
+      printf 'summary:CASTER secret_key_base (rotating this logs out all sessions)\n'
+      printf 'literal:secret-key-base=%s\n' "${skb}"
       ;;
   esac
 }
@@ -386,7 +427,8 @@ appflowy        docs         appflowy                 postgres-password, databas
                                                       minio-access-key, minio-secret-key
 syncthing       sync         syncthing                gui-apikey
 registry        infra        registry-htpasswd        htpasswd
-caster          caster       caster                   postgres-password
+caster          caster       caster                   postgres-password,
+                                                      secret-key-base
 
 Credentials that are NOT Kubernetes Secrets, because the app owns its own
 credential store and sets it up through a first-run wizard:
