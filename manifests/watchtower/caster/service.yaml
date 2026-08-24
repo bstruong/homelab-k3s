@@ -1,0 +1,22 @@
+---
+# A normal ClusterIP, deliberately NOT headless like postgres-service.yaml
+# beside it. That one is headless because a StatefulSet needs stable per-pod
+# DNS; this is a stateless app tier with no per-pod identity worth exposing, so
+# a virtual IP with ordinary load balancing is what Traefik should route to.
+apiVersion: v1
+kind: Service
+metadata:
+  name: caster
+  namespace: caster
+  labels:
+    app.kubernetes.io/name: caster
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: caster
+  ports:
+    - name: http
+      port: 3000
+      # The named port, not a bare 3000, so this stays correct if the
+      # container's port ever moves.
+      targetPort: http

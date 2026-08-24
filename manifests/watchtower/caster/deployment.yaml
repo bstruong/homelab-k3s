@@ -1,0 +1,184 @@
+---
+# CASTER — the Rails app tier. Its Postgres is the StatefulSet next door in
+# postgres-statefulset.yaml; this Deployment is stateless and owns nothing on
+# disk.
+#
+# The image does not exist yet. `registry.watchtower.local/caster:latest` has
+# to be built and pushed before this will schedule; the manifest is written
+# correct in advance of that rather than left as a placeholder. Note there is
+# deliberately NO imagePullSecret: containerd authenticates to the registry
+# through /etc/rancher/k3s/registries.yaml on the node, not through a
+# Kubernetes Secret, so a pull secret here would be dead configuration.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caster
+  namespace: caster
+  labels:
+    app.kubernetes.io/name: caster
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: the migrate initContainer changes the schema,
+    # and the previous release must not still be serving against it. With one
+    # replica there is no availability to protect anyway.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: caster
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: caster
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # uid/gid of the `rails` user the Dockerfile creates. NOT 999 — that is
+        # postgres's uid in the StatefulSet beside this file.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Rails crash-loops if Postgres is not accepting connections when
+        # db:prepare runs.
+        - name: wait-for-postgres
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z caster-postgres 5432; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+
+        # This is the ONLY thing that migrates the database, and it is not
+        # optional. bin/docker-entrypoint runs db:prepare only when the
+        # container's last two arguments are exactly "./bin/rails" and
+        # "server". This image's CMD is
+        #     ["./bin/rails", "server", "-b", "0.0.0.0"]
+        # so those last two arguments are "-b" and "0.0.0.0", the check is
+        # always false, and the entrypoint never migrates anything.
+        - name: migrate
+          image: registry.watchtower.local/caster:latest
+          command: ["./bin/rails", "db:prepare"]
+          env:
+            - name: RAILS_ENV
+              value: production
+            - name: DATABASE_HOST
+              value: caster-postgres
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: CASTER_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: caster
+                  key: postgres-password
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: caster
+                  key: secret-key-base
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /rails/tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      containers:
+        - name: caster
+          image: registry.watchtower.local/caster:latest
+          # No command/args override: the image's own ENTRYPOINT and CMD
+          # (/rails/bin/docker-entrypoint ./bin/rails server -b 0.0.0.0) are
+          # what should run.
+          env:
+            - name: RAILS_ENV
+              value: production
+            - name: DATABASE_HOST
+              value: caster-postgres
+            - name: DATABASE_PORT
+              value: "5432"
+            - name: CASTER_DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: caster
+                  key: postgres-password
+            - name: SECRET_KEY_BASE
+              valueFrom:
+                secretKeyRef:
+                  name: caster
+                  key: secret-key-base
+          ports:
+            # Puma's own default, from config/puma.rb's ENV.fetch("PORT", 3000).
+            # Unprivileged, so dropping ALL capabilities costs nothing here.
+            - name: http
+              containerPort: 3000
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /rails/tmp
+          # /up is rails/health#show. It returns 200 as soon as the app has
+          # booted without raising and touches no database, which is why the
+          # same path is safe for all three probes — readiness here does not
+          # depend on Postgres being up.
+          startupProbe:
+            httpGet:
+              path: /up
+              port: http
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /up
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /up
+              port: http
+            periodSeconds: 10
+          # Higher than Postgres's 100m/256Mi next door: a Puma process with
+          # jemalloc settles around 300-400Mi. Higher again than the registry's
+          # 50m/128Mi, which is a single Go binary rather than a full Rails
+          # boot.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+      volumes:
+        # Rails writes pids and bootsnap caches under tmp/, and puma.rb's
+        # :tmp_restart plugin watches tmp/restart.txt. All of it is rebuildable
+        # scratch, not state, so emptyDir rather than a volume.
+        - name: tmp
+          emptyDir: {}
