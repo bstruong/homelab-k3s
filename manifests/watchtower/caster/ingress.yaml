@@ -1,0 +1,54 @@
+---
+# caster.watchtower.local
+#
+# HTTPS-only, with HTTP redirected — the pocket-id / vaultwarden pattern, not
+# the registry's serve-both-schemes one. The registry keeps a plain HTTP route
+# because containerd needs it for the Basic-auth challenge flow; CASTER is a
+# browser-facing app with session cookies and has no such constraint, so
+# everything belongs on TLS.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: caster-redirect-https
+  namespace: caster
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: caster-http
+  namespace: caster
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`caster.watchtower.local`)
+      middlewares:
+        - name: caster-redirect-https
+      services:
+        - name: caster
+          port: 3000
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: caster-https
+  namespace: caster
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`caster.watchtower.local`)
+      services:
+        - name: caster
+          port: 3000
+  tls:
+    # Leaf cert issued by the Watchtower Homelab Root CA, the same way
+    # registry-tls was, with caster.watchtower.local as a SAN. NOT yet
+    # generated — that is a separate later step. Until this Secret exists
+    # Traefik serves its own self-signed default on this route, which browsers
+    # will warn about but which still works.
+    secretName: caster-tls
