@@ -46,7 +46,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: postgres:16
+          # Pinned by digest: this is the exact postgres:16 image already
+          # running under this database. Left as a floating :16, a node
+          # rebuild or an image GC can re-resolve the tag and land a
+          # different 16.x patch release under a live data directory with
+          # no manifest change and no review. Re-pin deliberately when an
+          # upgrade is actually wanted.
+          image: docker.io/library/postgres@sha256:e17e86066e5ef83e0952a9347f5c792b7ece00972e2aa787a6986f471b3dd3d5
           env:
             # Creating the superuser as `caster` rather than `postgres` matches
             # what Rails connects as: config/database.yml hardcodes
