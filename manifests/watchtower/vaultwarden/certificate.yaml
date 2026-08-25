@@ -1,0 +1,25 @@
+---
+# TLS for vault.watchtower.local, issued and auto-renewed by cert-manager.
+#
+# Replaces the hand-minted 10-year leaf that used to live in a SealedSecret
+# here. Apple's platform verifier rejects TLS server certs valid for more
+# than 398 days, which is why the old cert failed on macOS (Safari, curl,
+# anything on the system trust stack) while Chrome accepted it.
+#
+# 90-day lifetime, renewed 15 days before expiry. cert-manager writes
+# leaf + intermediate into tls.crt; clients trust only the root, so the
+# intermediate must be presented for the chain to build.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vaultwarden-tls
+  namespace: identity
+spec:
+  secretName: vaultwarden-tls
+  duration: 2160h    # 90d
+  renewBefore: 360h  # 15d
+  dnsNames:
+    - vault.watchtower.local
+  issuerRef:
+    name: watchtower-ca-issuer
+    kind: ClusterIssuer
