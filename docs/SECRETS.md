@@ -68,7 +68,6 @@ protection is that no workflow here ever writes a plaintext credential to disk.
 | --- | --- | --- | --- | --- |
 | Traefik | `kube-system` | `traefik-dashboard-auth` | `users` | no |
 | Vaultwarden | `identity` | `vaultwarden` | `admin-token` | no |
-| CrowdSec | `monitoring` | `crowdsec` | `bouncer-key`, `enroll-key` | no |
 | Beszel | `monitoring` | `beszel-agent` | `hub-public-key` | no |
 | Paperless-ngx | `docs` | `paperless-ngx` | `secret-key`, `admin-user`, `admin-password` | no |
 | AppFlowy | `docs` | `appflowy` | `postgres-password`, `database-url`, `jwt-secret`, `gotrue-admin-password`, `minio-access-key`, `minio-secret-key` | no |
@@ -101,9 +100,6 @@ Notes on the ones with sharp edges:
 
 * **`traefik-dashboard-auth/users`** is an htpasswd line, not a password. Only
   the bcrypt hash is stored; the password is shown once by `--show`.
-* **`crowdsec/enroll-key`** may be empty. It only links the instance to
-  app.crowdsec.net. The key must exist, but an empty value simply disables
-  enrollment.
 * **`appflowy/postgres-password` and `database-url`** are two views of one
   credential. Rotate them in the same command or GoTrue and appflowy-cloud will
   disagree with Postgres.

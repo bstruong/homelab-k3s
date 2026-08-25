@@ -47,7 +47,6 @@ NAMESPACES=(adguard identity monitoring media docs sync home infra caster)
 SECRET_SPECS=(
   "traefik|kube-system|traefik-dashboard-auth|users?"
   "vaultwarden|identity|vaultwarden|admin-token?"
-  "crowdsec|monitoring|crowdsec|bouncer-key?,enroll-key?"
   "beszel|monitoring|beszel-agent|hub-public-key?"
   "paperless-ngx|docs|paperless-ngx|secret-key?,admin-user?,admin-password?"
   "appflowy|docs|appflowy|postgres-password?,database-url?,jwt-secret?,gotrue-admin-password?,minio-access-key?,minio-secret-key?"
@@ -61,7 +60,6 @@ consequence_for_app() {
   case "$1" in
     traefik)       echo "the dashboard route returns 500; Traefik itself is unaffected" ;;
     vaultwarden)   echo "vaultwarden pod stays in CreateContainerConfigError" ;;
-    crowdsec)      echo "crowdsec pod stays in CreateContainerConfigError" ;;
     beszel)        echo "beszel-agent will not start; the hub generates this key on first run (docs/SECRETS.md)" ;;
     paperless-ngx) echo "paperless-ngx pod stays in CreateContainerConfigError" ;;
     appflowy)      echo "all five appflowy pods stay in CreateContainerConfigError" ;;
@@ -144,7 +142,7 @@ check_appdata() {
   cat <<EOF
 
   sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,jellyfin}
-  sudo mkdir -p ${APPDATA_ROOT}/{paperless-ngx,beszel,crowdsec,uptime-kuma}
+  sudo mkdir -p ${APPDATA_ROOT}/{paperless-ngx,beszel,uptime-kuma}
   sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,media,registry}
   sudo mkdir -p ${APPDATA_ROOT}/appflowy/{postgres,minio}
   sudo mkdir -p ${APPDATA_ROOT}/caster/postgres
@@ -167,7 +165,6 @@ check_appdata() {
   # process cannot create anything inside it. Getting this wrong looks like
   # a bare "permission denied" from an app you believe is running as root.
   sudo chown -R 0:0       ${APPDATA_ROOT}/adguard-home       # its first-launch check is a bare uid==0 test
-  sudo chown -R 0:0       ${APPDATA_ROOT}/crowdsec           # crowdsec runs as root
   sudo chown -R 0:0       ${APPDATA_ROOT}/home-assistant     # s6-overlay needs root
 
 EOF
@@ -176,7 +173,7 @@ EOF
 # ------------------------------------------------------------------ secrets --
 
 # Lists the key names present in a Secret. Checking names rather than values
-# lets a key legitimately hold an empty string (CrowdSec's enroll-key).
+# lets a key legitimately hold an empty string.
 secret_keys() {
   kubectl -n "$1" get secret "$2" -o go-template='{{range $k, $v := .data}}{{$k}}{{"\n"}}{{end}}' 2>/dev/null
 }

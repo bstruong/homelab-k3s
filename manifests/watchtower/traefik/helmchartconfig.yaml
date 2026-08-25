@@ -53,7 +53,7 @@ spec:
         level: INFO
       access:
         enabled: true
-        # CrowdSec parses these from the pod log.
+        # JSON format for structured log parsing by future log tooling.
         format: json
 
     globalArguments:
