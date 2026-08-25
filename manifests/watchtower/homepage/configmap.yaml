@@ -93,6 +93,18 @@ data:
             description: Push notifications
             namespace: monitoring
             app: ntfy
+        - CASTER:
+            # Headless Rails pipeline — there is no web UI. The site root
+            # returns HTTP 404 by design (verified against the live ingress),
+            # so href points at /up, the Rails health endpoint, which returns
+            # 200 and is the only route the app serves. Known and expected
+            # limitation, not a bug — do not "fix" this by pointing href at /.
+            # No widget block: homepage has no widget type for a headless
+            # data pipeline, so this tile is a link plus k8s pod status.
+            href: https://caster.watchtower.local/up
+            description: MLS market intelligence pipeline
+            namespace: caster
+            app: caster
 
     - Identity:
         - Vaultwarden:
