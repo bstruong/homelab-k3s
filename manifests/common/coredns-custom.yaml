@@ -17,6 +17,24 @@
 # ends with `import /etc/coredns/custom/*.server`, and the CoreDNS deployment
 # mounts this ConfigMap at /etc/coredns/custom (optional: true), so nothing
 # k3s-managed needs editing — which also means a k3s upgrade will not revert it.
+#
+# The `template` stanza closes a search-domain leak. Pods get `ndots:5` and a
+# search list ending in `watchtower.local`, so ANY external hostname with fewer
+# than 5 dots is tried as `<name>.watchtower.local` FIRST. AdGuard's
+# `*.watchtower.local` wildcard answered every one of those with 192.168.1.92,
+# so `github.com`, `api.github.com`, `cdn-hub.crowdsec.net` and effectively the
+# whole internet resolved to Traefik from inside every pod — which then served
+# its self-signed `CN=TRAEFIK DEFAULT CERT`, breaking TLS cluster-wide.
+#
+# Every real service name under this zone is single-label (jellyfin, vault,
+# registry, ...); every leaked name is multi-label by construction, because it
+# is an external FQDN with the search domain appended. So NXDOMAIN on 2+ labels
+# closes the leak exactly, and the resolver then continues down the search list
+# to the bare external FQDN and resolves it correctly. `fallthrough` keeps
+# single-label names going to `forward`, preserving the fix described above.
+#
+# This is ordinary split-horizon hygiene: an internal zone should answer only
+# for names it actually owns and NXDOMAIN otherwise.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -27,5 +45,10 @@ data:
     watchtower.local:53 {
         errors
         cache 30
+        template ANY ANY watchtower.local {
+            match "^([^.]+\.){2,}watchtower\.local\.$"
+            rcode NXDOMAIN
+            fallthrough
+        }
         forward . 192.168.1.92
     }
