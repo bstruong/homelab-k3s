@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik vaultwarden crowdsec beszel paperless-ngx appflowy syncthing registry caster"
+ALL_APPS="traefik vaultwarden beszel paperless-ngx appflowy syncthing registry caster"
 
 MODE=""
 SHOW=false
@@ -106,7 +106,7 @@ app_namespace() {
   case "$1" in
     traefik)           echo kube-system ;;
     vaultwarden)       echo identity ;;
-    crowdsec|beszel)   echo monitoring ;;
+    beszel)            echo monitoring ;;
     paperless-ngx|appflowy) echo docs ;;
     syncthing)         echo sync ;;
     registry)          echo infra ;;
@@ -152,16 +152,6 @@ app_literals() {
       token="$(gen 64)"
       printf 'summary:Vaultwarden admin token %s\n' "${token}"
       printf 'literal:admin-token=%s\n' "${token}"
-      ;;
-
-    crowdsec)
-      local bouncer enroll
-      bouncer="$(gen 40)"
-      printf 'summary:CrowdSec bouncer key   %s\n' "${bouncer}"
-      printf 'literal:bouncer-key=%s\n' "${bouncer}"
-      enroll="$(prompt 'CrowdSec console enroll key from https://app.crowdsec.net (optional).')"
-      # The key must exist even when unused; an empty value disables enrollment.
-      printf 'literal:enroll-key=%s\n' "${enroll}"
       ;;
 
     beszel)
@@ -418,7 +408,6 @@ App             Namespace    Secret                   Keys
 --------------- ------------ ------------------------ ------------------------------
 traefik         kube-system  traefik-dashboard-auth   users
 vaultwarden     identity     vaultwarden              admin-token
-crowdsec        monitoring   crowdsec                 bouncer-key, enroll-key
 beszel          monitoring   beszel-agent             hub-public-key
 paperless-ngx   docs         paperless-ngx            secret-key, admin-user,
                                                       admin-password
