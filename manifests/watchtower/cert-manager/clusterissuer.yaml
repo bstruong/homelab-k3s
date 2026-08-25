@@ -1,0 +1,18 @@
+---
+# Cluster-wide issuer backed by the Watchtower Homelab INTERMEDIATE CA.
+#
+# The root CA private key deliberately never enters the cluster: it stays at
+# /mnt/appdata/homelab-ca/ca.key (0600, offline). The root signed this
+# intermediate once, locally, with pathlen:0 — so the intermediate can issue
+# leaves but cannot mint further CAs.
+#
+# Clients trust only the root, so anything served with these leaves must
+# present leaf + intermediate. cert-manager writes that chain into tls.crt
+# automatically for ca-type issuers.
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: watchtower-ca-issuer
+spec:
+  ca:
+    secretName: watchtower-intermediate-keypair
