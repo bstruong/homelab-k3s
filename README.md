@@ -81,7 +81,6 @@ before its agent's credential can exist.
 | AdGuard Home | `adguard` | `dns.watchtower.local` | DNS on :53 via a LoadBalancer Service |
 | Pocket ID | `identity` | `id.watchtower.local` | Passkey-only OIDC provider; HTTPS-only |
 | Vaultwarden | `identity` | `vault.watchtower.local` | Signups closed; HTTP redirects to HTTPS |
-| CrowdSec | `monitoring` | — | Parses Traefik access logs; no web UI |
 | Beszel | `monitoring` | `beszel.watchtower.local` | Hub Deployment + Agent DaemonSet |
 | Uptime Kuma | `monitoring` | `status.watchtower.local` | `NET_RAW` for ICMP monitors |
 | Jellyfin | `media` | `jellyfin.watchtower.local` | Direct Play only, transcoding off |
@@ -102,9 +101,9 @@ Watchtower node. Each app gets a statically defined `PersistentVolume`
 (`hostPath`, `storageClassName: appdata`) bound one-to-one to its PVC through
 `claimRef`, so a PVC can never bind to another app's data. Reclaim policy is
 `Retain` — deleting a PVC never deletes data on disk. `deploy.sh` prints the
-`mkdir`/`chown` commands the node needs, including the four directories not
-owned by uid 1000: AdGuard Home, CrowdSec and Home Assistant are `0:0`, and
-AppFlowy's Postgres is `999:999`.
+`mkdir`/`chown` commands the node needs, including the three directories not
+owned by uid 1000: AdGuard Home and Home Assistant are `0:0`, and AppFlowy's
+Postgres is `999:999`.
 
 **Backups.** Only the two Odysseus volumes are backed up so far, by
 `scripts/backup-odysseus-volumes.sh` on a daily user crontab on Watchtower
@@ -145,7 +144,6 @@ The exceptions, each documented at the top of its manifest:
 | AdGuard Home | root + `NET_BIND_SERVICE` | its first-launch check is a bare `os.Getuid() == 0` test, which no capability can satisfy |
 | Uptime Kuma | starts as root, adds `CHOWN`, `SETUID`, `SETGID`, `NET_RAW` | its entrypoint chowns the data volume and then drops to uid 1000 via `setpriv`; the app process itself is unprivileged |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
-| CrowdSec | root, read-only host log mounts | `/var/log/pods` is root-owned mode 0640, and reading it is the entire job |
 | Home Assistant | root | s6-overlay has no supported non-root mode |
 | Homepage | mounts a token | its widgets read workload status; the ClusterRole is read-only and lists no secrets |
 
@@ -159,8 +157,8 @@ end are not optional.
 Note that "runs as root" does not mean "can write anywhere." Every container
 here drops `ALL` capabilities, so none has `CAP_DAC_OVERRIDE`, and a uid 0
 process without it gets no permission bypass: against a 1000-owned `0755`
-directory it can read and traverse but not create. AdGuard Home, CrowdSec and
-Home Assistant all run as uid 0 and therefore need their data directories owned
+directory it can read and traverse but not create. AdGuard Home and Home
+Assistant both run as uid 0 and therefore need their data directories owned
 by `0:0`, not `1000:1000`.
 
 Uptime Kuma is the inverse case: it starts as root and drops to uid 1000 in its
@@ -192,9 +190,6 @@ for pub/sub, and S3-compatible storage for attachments (MinIO here). Its images
 are the one thing in this repo not version-pinned, because upstream ships
 appflowy-cloud and GoTrue as a matched pair — pin both to the tags from the
 `docker-compose.yml` of the release you intend to run.
-
-**CrowdSec** detects but does not block on its own. To actually drop traffic,
-register the Traefik bouncer plugin with the `bouncer-key` from its Secret.
 
 **Home Assistant** does not use `hostNetwork`, so mDNS/DHCP/SSDP discovery will
 not find devices. If you depend on those integrations, enable it — the manifest
