@@ -1,0 +1,24 @@
+---
+# TLS for traefik, issued and auto-renewed by cert-manager.
+#
+# Replaces a hand-minted 10-year leaf that used to live in a SealedSecret
+# here. Apple platform verifiers reject TLS server certs valid for more
+# than 398 days, which is why the old cert failed on macOS clients.
+#
+# 90-day lifetime, renewed 15 days before expiry. cert-manager writes
+# leaf + intermediate into tls.crt; clients trust only the root, so the
+# intermediate must be presented for the chain to build.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: traefik-dashboard-tls
+  namespace: kube-system
+spec:
+  secretName: traefik-dashboard-tls
+  duration: 2160h    # 90d
+  renewBefore: 360h  # 15d
+  dnsNames:
+    - traefik.watchtower.local
+  issuerRef:
+    name: watchtower-ca-issuer
+    kind: ClusterIssuer
