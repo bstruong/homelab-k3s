@@ -149,10 +149,34 @@ app_literals() {
       ;;
 
     vaultwarden)
-      local token
+      # TWO keys, and only one of them may rotate on a --force.
+      #
+      # do_seal with --force rebuilds the whole Secret from this function's
+      # output, so anything not printed here is DROPPED. This case used to emit
+      # admin-token alone, which meant a reseal would silently delete
+      # sso-client-secret and break the Pocket ID login path -- the same trap
+      # documented in the caster case below, and the reason that one reads its
+      # live value back.
+      #
+      # sso-client-secret is REUSED from the live Secret: it is issued by
+      # Pocket ID and must match the client registered there, so regenerating
+      # it here would produce a value nothing on the other side accepts.
+      # admin-token IS freshly generated -- rotating it only invalidates the
+      # /admin session, which is the point of a reseal.
+      local token sso
       token="$(gen 64)"
+      sso="$(kubectl get secret vaultwarden -n identity \
+               -o jsonpath='{.data.sso-client-secret}' 2>/dev/null \
+             | base64 -d 2>/dev/null || true)"
+      if [[ -z "${sso}" ]]; then
+        sso="$(prompt 'Vaultwarden SSO client secret (from Pocket ID).
+  No live value found to reuse; leave blank only if SSO is not configured.')"
+      fi
       printf 'summary:Vaultwarden admin token %s\n' "${token}"
       printf 'literal:admin-token=%s\n' "${token}"
+      if [[ -n "${sso}" ]]; then
+        printf 'literal:sso-client-secret=%s\n' "${sso}"
+      fi
       ;;
 
     beszel)
