@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik vaultwarden beszel paperless-ngx appflowy syncthing registry caster"
+ALL_APPS="traefik vaultwarden beszel paperless-ngx appflowy syncthing registry caster antigravity"
 
 MODE=""
 SHOW=false
@@ -111,6 +111,7 @@ app_namespace() {
     syncthing)         echo sync ;;
     registry)          echo infra ;;
     caster)            echo caster ;;
+    antigravity)       echo antigravity ;;
     *) die "unknown app: $1 (known: ${ALL_APPS})" ;;
   esac
 }
@@ -269,6 +270,17 @@ app_literals() {
       printf 'literal:postgres-password=%s\n' "${pw}"
       printf 'summary:CASTER secret_key_base (rotating this logs out all sessions)\n'
       printf 'literal:secret-key-base=%s\n' "${skb}"
+      ;;
+    antigravity)
+      # agy-server's web access password. Consumed by AGY_PASSWORD on first
+      # run only -- auth.LoadOrCreateCredentials writes credentials.json from
+      # it and thereafter ignores the env var entirely. Rotating therefore
+      # means `agy-server passwd`, not resealing this. Upstream's minimum is
+      # 8 characters (auth.MinPasswordLen); 24 is the house default.
+      local pw
+      pw="$(gen 24)"
+      printf 'summary:Antigravity Server    %s\n' "${pw}"
+      printf 'literal:password=%s\n' "${pw}"
       ;;
   esac
 }
