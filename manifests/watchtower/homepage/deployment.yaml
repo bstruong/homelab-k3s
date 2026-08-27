@@ -15,10 +15,33 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: homepage
-      annotations:
-        # Restarts the pod when the config changes; homepage only reads these
-        # files at startup.
-        checksum/config: "replace-me-on-config-change"
+      # NO checksum/config annotation, deliberately.
+      #
+      # There used to be one here, permanently set to the literal string
+      # "replace-me-on-config-change". An annotation only rolls the pod when
+      # its VALUE changes, so a constant placeholder rolls nothing — it read
+      # as a working safeguard while doing nothing at all. Commit a6ffc5c
+      # proved it: it added the live Paperless-ngx widget to configmap.yaml
+      # and left the placeholder untouched, so the running pod kept serving
+      # the old config until someone restarted it by hand.
+      #
+      # These manifests are raw YAML applied with `kubectl apply -f` — there
+      # is no Helm, no kustomize and no envsubst in this repo, so a manifest
+      # cannot compute a hash of its own ConfigMap. The honest options were a
+      # value bumped by hand on every config edit (the same discipline that
+      # already failed once) or a checksum injected by deploy.sh at apply
+      # time, which would make the live annotation permanently differ from
+      # the committed file. Neither is worth it for one restart command.
+      #
+      # So: CHANGING configmap.yaml REQUIRES A MANUAL RESTART.
+      #
+      #     kubectl rollout restart deployment/homepage -n home
+      #
+      # This is not a workaround, it is the actual procedure — and it is what
+      # has always happened in practice. It matters because seed-config below
+      # COPIES the ConfigMap into an emptyDir at boot rather than mounting it;
+      # a ConfigMap edit therefore never reaches a running pod, with or
+      # without an annotation.
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
