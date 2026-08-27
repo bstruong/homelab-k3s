@@ -52,3 +52,49 @@ data:
         }
         forward . 192.168.1.92
     }
+
+  # Return NODATA for every AAAA query.
+  #
+  # Pods on this cluster have no IPv6 egress: eth0 carries only a link-local
+  # fe80::/64 address and there is no IPv6 default route. Plenty of external
+  # names do have AAAA records, though — oauth2.googleapis.com among them.
+  # Go's resolver sorts the AAAA answer first (RFC 6724), and when a degraded
+  # upstream hands back the AAAA without the A there is nothing reachable left
+  # to dial:
+  #
+  #     Post "https://oauth2.googleapis.com/token":
+  #     dial tcp [2607:f8b0:4023:c03::5f]:443: connect: network is unreachable
+  #
+  # That killed an Antigravity OAuth token exchange outright and burned the
+  # single-use authorization code with it. The same upstream flap that produces
+  # "server misbehaving" also broke a playwright driver download and repeated
+  # profile-picture fetches, so this is intermittent rather than rare.
+  #
+  # Answering NODATA — "the name exists, it simply has no AAAA" — makes the
+  # resolver fall straight through to the A record, which works. That is also
+  # the honest answer here: these names have no address this cluster can reach
+  # over IPv6.
+  #
+  # NODATA is not a DNS rcode and CoreDNS rejects `rcode NODATA` outright
+  # ("unknown rcode NODATA"), which crashloops the pod and takes cluster DNS
+  # down with it. NODATA is a *condition*: NOERROR with an empty answer
+  # section. So the rule sets `rcode NOERROR` and generates no records, which
+  # is exactly that.
+  #
+  # This is a *.override, not a *.server. The managed Corefile expands
+  # `import /etc/coredns/custom/*.override` INSIDE the main `.:53` block,
+  # immediately before `forward . /etc/resolv.conf`, so the rule covers general
+  # external forwarding. (CoreDNS orders plugins by its compiled-in plugin.cfg
+  # rather than by position in the Corefile, and `template` sorts ahead of
+  # `forward` either way — but the block it lands in is what scopes it.)
+  #
+  # With no `match` regex the template matches every name, so `fallthrough` is
+  # never reached; it is kept as a safety net, because a future `match` that
+  # failed would otherwise return NXDOMAIN for AAAA, which is worse than NODATA.
+  #
+  # A records, PTR lookups, and the watchtower.local block above are untouched.
+  aaaa.override: |
+    template ANY AAAA . {
+        rcode NOERROR
+        fallthrough
+    }
