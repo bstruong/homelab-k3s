@@ -93,17 +93,3 @@ metadata:
     # namespace rather than a shared one — its Postgres is single-tenant, not
     # the `docs` instance, which belongs to AppFlowy.
     pod-security.kubernetes.io/enforce: restricted
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: antigravity
-  labels:
-    homelab.watchtower/stack: watchtower
-    # restricted, matching `caster` and `infra`: agy-server runs as uid 1000
-    # with runAsNonRoot, drops ALL capabilities and sets seccomp
-    # RuntimeDefault, so it already complies. The namespace was created
-    # imperatively when the app was first deployed and so had no enforce
-    # label at all, which silently meant no Pod Security enforcement --
-    # this brings it in line with every other app namespace.
-    pod-security.kubernetes.io/enforce: restricted
