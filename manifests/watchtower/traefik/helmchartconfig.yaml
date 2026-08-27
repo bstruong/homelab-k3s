@@ -24,6 +24,15 @@ spec:
         cpu: "1"
         memory: 512Mi
 
+    # externalTrafficPolicy: Local preserves the real client source IP. With the
+    # default (Cluster), kube-proxy SNATs inbound traffic and every request is
+    # attributed to the cni0 bridge gateway (10.42.0.1) in the access log below.
+    # On this single-node cluster Local costs nothing — all traffic already
+    # lands on Watchtower, so there is no cross-node hop to drop.
+    service:
+      spec:
+        externalTrafficPolicy: Local
+
     ports:
       web:
         exposedPort: 80
