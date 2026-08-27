@@ -17,10 +17,36 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: searxng
-      annotations:
-        # Roll the pod when settings.yml changes — the entrypoint only reads
-        # it at boot and leaves an existing file alone.
-        checksum/settings: "json-formats-v1"
+      # NO checksum/settings annotation, deliberately.
+      #
+      # There used to be one here, fixed at the literal string
+      # "json-formats-v1". An annotation only rolls the pod when its VALUE
+      # changes, and this one was set once when the file was written and never
+      # touched again — so it never rolled anything. It read as a working
+      # safeguard while doing nothing at all, the same way homepage's
+      # "replace-me-on-config-change" did.
+      #
+      # These manifests are raw YAML applied with `kubectl apply -f` — there
+      # is no Helm, no kustomize and no envsubst in this repo, so a manifest
+      # cannot compute a hash of its own ConfigMap. The honest options were a
+      # value bumped by hand on every config edit or a checksum injected by
+      # deploy.sh at apply time, which would make the live annotation
+      # permanently differ from the committed file. Neither is worth it for
+      # one restart command.
+      #
+      # So: CHANGING searxng-settings IN configmap.yaml REQUIRES A MANUAL
+      # RESTART.
+      #
+      #     kubectl rollout restart deployment/searxng -n odysseus
+      #
+      # TWO separate reasons make that mandatory here, and they differ from
+      # homepage's (which copies its ConfigMap into an emptyDir at boot).
+      # First, settings.yml is mounted with subPath, and Kubernetes never
+      # refreshes a subPath mount when the underlying ConfigMap changes — the
+      # file on disk stays at the version present when the pod started.
+      # Second, even without subPath the entrypoint only reads settings.yml at
+      # boot and leaves an existing file alone. Either one alone would require
+      # the restart.
     spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
