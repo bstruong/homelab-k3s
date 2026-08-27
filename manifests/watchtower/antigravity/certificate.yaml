@@ -1,0 +1,22 @@
+---
+# TLS for antigravity, issued and auto-renewed by cert-manager.
+#
+# Written against the pattern the other eighteen services were migrated to:
+# 90-day lifetime, renewed 15 days before expiry, signed by the intermediate
+# rather than the offline root. cert-manager writes leaf + intermediate into
+# tls.crt; clients trust only the root, so the intermediate must be presented
+# for the chain to build.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: antigravity-tls
+  namespace: antigravity
+spec:
+  secretName: antigravity-tls
+  duration: 2160h    # 90d
+  renewBefore: 360h  # 15d
+  dnsNames:
+    - antigravity.watchtower.local
+  issuerRef:
+    name: watchtower-ca-issuer
+    kind: ClusterIssuer

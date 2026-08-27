@@ -1,0 +1,65 @@
+---
+# All of agy-server's state, in one volume.
+#
+# The container sets HOME=/data, which is what makes a single mount enough.
+# Three separate things live under it and all three matter across a restart:
+#
+#   /data/.agy-remote   config.json, credentials.json, sessions.json
+#   /data/.gemini       jetski-standalone-oauth-token, the Google sign-in
+#   /data/workspace     projects
+#
+# The token is the reason this is a PVC and not an emptyDir. Antigravity signs
+# in through a browser flow; losing ~/.gemini means signing in again by hand on
+# every pod restart.
+#
+# A PV+PVC pair rather than a volumeClaimTemplate, matching registry/pvc.yaml:
+# this is a Deployment, so there is no template to generate the claim, and the
+# `appdata` StorageClass has no provisioner — without a matching PV the claim
+# would sit Pending forever.
+#
+# 10Gi is nominal. The StorageClass has no provisioner, so the real limit is
+# free space on /mnt/appdata (844G at time of writing). The workspace starts
+# empty; this only needs growing if a real project lands in it.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: antigravity-data
+  labels:
+    app.kubernetes.io/name: antigravity-server
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    # Pre-created as brian (uid 1000), which is deliberately the same uid the
+    # container runs as. DirectoryOrCreate would otherwise have kubelet make it
+    # root-owned 0755 and the non-root process could not write to it.
+    path: /mnt/appdata/antigravity
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: antigravity
+    name: antigravity-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: antigravity-data
+  namespace: antigravity
+  labels:
+    app.kubernetes.io/name: antigravity-server
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: antigravity-data
+  resources:
+    requests:
+      storage: 10Gi

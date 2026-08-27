@@ -1,0 +1,171 @@
+---
+# Antigravity Server — agy-server, headless.
+#
+# agy-server is a reverse proxy in front of Google's `language_server`, which
+# it launches itself with --standalone. Both live in the image; only state is
+# on the volume. No GPU and no desktop streaming is involved: language_server
+# serves the Antigravity web UI over HTTP and agy-server patches that bundle in
+# flight for touch devices.
+#
+# No OIDC in front of this, deliberately — the LAN plus TLS plus agy-server's
+# own password auth is the perimeter, the same call made for CASTER. Unlike
+# odysseus there is no oauth2-proxy sidecar here.
+#
+# The image must be built and pushed before this will schedule; see the
+# Dockerfile in this directory. As with CASTER there is deliberately NO
+# imagePullSecret: containerd authenticates to the registry through
+# /etc/rancher/k3s/registries.yaml on the node, not through a Kubernetes
+# Secret, so a pull secret here would be dead configuration.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: antigravity-server
+  namespace: antigravity
+  labels:
+    app.kubernetes.io/name: antigravity-server
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate. The PVC is ReadWriteOnce and holds the
+    # sign-in token and session state; a second pod starting before the first
+    # exits would block on the volume. One replica by design — this is a
+    # personal dev tool, and language_server is a single-tenant process.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: antigravity-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: antigravity-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # uid/gid of the `agy` user the Dockerfile creates, which is also the
+        # owner of /mnt/appdata/antigravity on the host so the hostPath volume
+        # is writable without relying on fsGroup chown semantics.
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: antigravity-server
+          image: registry.watchtower.local/antigravity-server:latest
+          # Explicit, though :latest already defaults to Always. Stated here
+          # because the tag is mutable and a rebuild is how this gets updated.
+          imagePullPolicy: Always
+          # The image's ENTRYPOINT is agy-server and its CMD is `serve`, the
+          # headless daemon mode. Spelled out rather than inherited so the
+          # running mode is visible in the manifest.
+          args: ["serve"]
+          env:
+            # Port, bind address, language_server path and workspace root are
+            # baked into the image as ENV. Only the deployment-specific values
+            # are set here.
+            #
+            # No config.json is generated anywhere: internal/config/config.go
+            # tolerates a missing file and applies these env overrides on top
+            # of its defaults, so there is nothing to seed on a fresh volume.
+            - name: AGY_PUBLIC_URL
+              value: https://antigravity.watchtower.local
+            # The rate limiter counts failures per client IP, and agy-server
+            # only believes X-Forwarded-For from addresses listed here. The
+            # upstream README says 127.0.0.1/32 because it assumes Caddy or
+            # nginx on the same host; that is wrong here, since Traefik is a
+            # separate pod with a pod-network address. This is the k3s pod
+            # CIDR — 10.42.0.0/16 cluster-wide, of which this node currently
+            # holds 10.42.0.0/24. The /16 rather than the /24 so it still
+            # holds if a second node is ever added.
+            #
+            # KNOWN LIMITATION, measured rather than assumed. This setting is
+            # necessary but not currently sufficient: the real client IP never
+            # reaches Traefik. The traefik Service is type LoadBalancer with
+            # externalTrafficPolicy: Cluster, so klipper (svclb-traefik) SNATs
+            # every external connection to the cni0 gateway. A request from a
+            # laptop at 192.168.1.199 arrives at the backend as
+            #
+            #     RemoteAddr: 10.42.0.3   X-Forwarded-For: 10.42.0.1
+            #
+            # Both are inside the trusted CIDR, so ClientIP() walks the chain,
+            # finds no untrusted hop and falls back to the direct peer. Every
+            # LAN client therefore shares ONE bucket: 5 bad passwords from any
+            # device locks out all of them.
+            #
+            # This fails closed, not open — it over-restricts rather than
+            # letting an attacker slip the limiter — so it is a lockout
+            # nuisance, not a bypass. Fixing it properly means setting
+            # externalTrafficPolicy: Local on the traefik Service, which is a
+            # cluster-wide change affecting every ingress on this box and so
+            # is deliberately not made here. Once that is done this value
+            # starts working as intended with no change to this manifest.
+            - name: AGY_TRUSTED_PROXIES
+              value: 10.42.0.0/16
+            # Consumed only on first run, when credentials.json does not yet
+            # exist (auth.LoadOrCreateCredentials). Once the volume has
+            # credentials.json this value is ignored, so rotating the password
+            # means `agy-server passwd`, not editing the Secret.
+            - name: AGY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: antigravity
+                  key: password
+          ports:
+            - name: http
+              containerPort: 8765
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          # /__agy/login, NOT /. agy-server gates everything behind its own
+          # password auth, so /, /__agy/signin and every made-up health path
+          # all answer 401 — which kubelet counts as a probe failure. The
+          # unauthenticated login page is the one endpoint that returns 200,
+          # and reaching it proves the proxy and its auth layer are both up.
+          # It does NOT prove language_server is up, which is intentional:
+          # language_server is slow to start and restarting the pod would not
+          # help it along.
+          startupProbe:
+            httpGet:
+              path: /__agy/login
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:
+            httpGet:
+              path: /__agy/login
+              port: http
+            periodSeconds: 10
+          # Liveness is a bare TCP check on purpose, unlike the two above. A
+          # liveness probe pinned to an internal path would turn an upstream
+          # rename of /__agy/login into a permanent crash loop; readiness
+          # failing on the same rename only pulls the pod out of the Service,
+          # which is recoverable. This restarts the pod only if the listener
+          # itself has wedged.
+          livenessProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 30
+          # Modest on purpose. Watchtower has 8 cores and 32Gi but memory
+          # limits across the node are already committed to ~88%, so the
+          # ceiling here is kept low rather than generous. agy-server itself is
+          # a small Go proxy; language_server is the heavier half, and it is an
+          # editor backend rather than anything compute-bound — there is no GPU
+          # on this host and none is wanted.
+          resources:
+            requests:
+              cpu: 200m
+              memory: 512Mi
+            limits:
+              cpu: "1500m"
+              memory: 2Gi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: antigravity-data
