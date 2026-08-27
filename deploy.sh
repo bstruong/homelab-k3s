@@ -29,7 +29,7 @@ ONLY_APP=""
 # The app namespaces. Traefik also lives in kube-system, but it is k3s's own
 # bundled install rather than something this repo deploys, so it is never waited
 # on here. This repo now owns no kube-system workloads at all.
-NAMESPACES=(adguard identity monitoring media docs sync home infra caster antigravity)
+NAMESPACES=(adguard identity monitoring media docs sync home infra caster)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -53,7 +53,6 @@ SECRET_SPECS=(
   "syncthing|sync|syncthing|gui-apikey?"
   "registry|infra|registry-htpasswd|htpasswd?"
   "caster|caster|caster|postgres-password,secret-key-base"
-  "antigravity|antigravity|antigravity|password"
 )
 
 # What actually happens when an optional secret is missing.
@@ -66,7 +65,6 @@ consequence_for_app() {
     appflowy)      echo "all five appflowy pods stay in CreateContainerConfigError" ;;
     syncthing)     echo "syncthing pod stays in CreateContainerConfigError" ;;
     registry)      echo "registry pod stays in CreateContainerConfigError; no image push or pull works" ;;
-    antigravity)   echo "antigravity-server pod stays in CreateContainerConfigError" ;;
     *)             echo "the app may not start" ;;
   esac
 }
