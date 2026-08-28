@@ -29,7 +29,7 @@ ONLY_APP=""
 # The app namespaces. Traefik also lives in kube-system, but it is k3s's own
 # bundled install rather than something this repo deploys, so it is never waited
 # on here. This repo now owns no kube-system workloads at all.
-NAMESPACES=(adguard identity monitoring media docs sync home infra caster)
+NAMESPACES=(adguard identity monitoring media docs sync home infra caster immich)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -53,6 +53,7 @@ SECRET_SPECS=(
   "syncthing|sync|syncthing|gui-apikey?"
   "registry|infra|registry-htpasswd|htpasswd?"
   "caster|caster|caster|postgres-password,secret-key-base"
+  "immich|immich|immich|postgres-password"
 )
 
 # What actually happens when an optional secret is missing.
@@ -65,6 +66,7 @@ consequence_for_app() {
     appflowy)      echo "all five appflowy pods stay in CreateContainerConfigError" ;;
     syncthing)     echo "syncthing pod stays in CreateContainerConfigError" ;;
     registry)      echo "registry pod stays in CreateContainerConfigError; no image push or pull works" ;;
+    immich)        echo "immich-postgres and immich-server both stay in CreateContainerConfigError" ;;
     *)             echo "the app may not start" ;;
   esac
 }
@@ -146,6 +148,7 @@ check_appdata() {
   sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,media,registry}
   sudo mkdir -p ${APPDATA_ROOT}/appflowy/{postgres,minio}
   sudo mkdir -p ${APPDATA_ROOT}/caster/postgres
+  sudo mkdir -p ${APPDATA_ROOT}/immich/{postgres,library}
 
   # Apps running as uid 1000. Each directory is named explicitly on purpose:
   # a recursive chown of ${APPDATA_ROOT} itself would also rewrite k3s's
@@ -157,6 +160,7 @@ check_appdata() {
   sudo chown -R 1000:1000 ${APPDATA_ROOT}/appflowy/minio
   sudo chown -R 999:999   ${APPDATA_ROOT}/appflowy/postgres  # postgres runs as uid 999
   sudo chown -R 999:999   ${APPDATA_ROOT}/caster/postgres    # postgres runs as uid 999
+  sudo chown -R 999:999   ${APPDATA_ROOT}/immich/postgres    # postgres runs as uid 999
 
   # Apps whose container runs as uid 0. These MUST be root-owned. Every
   # container here drops ALL capabilities, so none of them holds
@@ -166,6 +170,7 @@ check_appdata() {
   # a bare "permission denied" from an app you believe is running as root.
   sudo chown -R 0:0       ${APPDATA_ROOT}/adguard-home       # its first-launch check is a bare uid==0 test
   sudo chown -R 0:0       ${APPDATA_ROOT}/home-assistant     # s6-overlay needs root
+  sudo chown -R 0:0       ${APPDATA_ROOT}/immich/library     # immich-server runs as uid 0
 
 EOF
 }

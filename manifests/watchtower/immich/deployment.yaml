@@ -1,0 +1,166 @@
+---
+# Immich — the server tier. Postgres is the StatefulSet next door, Redis the
+# Deployment beside it; this pod owns nothing on disk except the library
+# volume it mounts at /data.
+#
+# THERE IS DELIBERATELY NO immich-machine-learning DEPLOYMENT IN THIS
+# DIRECTORY. Watchtower has no GPU and a 2014-era CPU, so the ML tier is
+# omitted entirely rather than deployed and left idle — which is what upstream
+# recommends when the ML endpoint will never be used ("you can remove the
+# immich-machine-learning section ... as this service will never be used").
+# The consequence is real and worth stating: smart search, face and people
+# detection, and duplicate detection are unavailable, and the Explore page is
+# degraded. Ordinary browsing, albums, timeline and metadata search are not
+# affected. ML must ALSO be switched off in Administration -> Settings ->
+# Machine Learning after first boot; there is no environment variable for it
+# (IMMICH_MACHINE_LEARNING_ENABLED does not exist).
+#
+# Runs as root, and that is why the `immich` namespace is baseline rather than
+# restricted. The image declares no USER, upstream runs it as root, and it
+# needs to own files it writes under /data. Capabilities are still dropped
+# wholesale and privilege escalation is off, so this is root without any of
+# root's powers — the same posture the odysseus namespace documents.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: immich-server
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-server
+spec:
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate: the library volume is ReadWriteOnce, so a
+    # second pod could not attach it while the first still holds it. With one
+    # replica there is no availability to protect anyway.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: immich-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: immich-server
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Immich retries its database connection on boot, but noisily and for
+        # a long time. Waiting here keeps the first minute of server logs
+        # readable, the same reason caster does it.
+        - name: wait-for-postgres
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z immich-postgres 5432; do
+                echo "waiting for postgres..."
+                sleep 2
+              done
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: immich-server
+          # Pinned by digest to v3.1.0, the current stable release. The
+          # upstream compose file uses a floating `:release`/`:v3` tag; this
+          # repo pins, so an image GC or node rebuild cannot silently
+          # re-resolve to a different build. Re-pin deliberately to upgrade.
+          image: ghcr.io/immich-app/immich-server:v3.1.0@sha256:b434cb9287eea1471c9974845914d4dd328c9c2d652e446ed4930f99944f0ceb
+          # No command/args override: the image's own entrypoint
+          # (tini -- /bin/bash -c start.sh) is what should run.
+          env:
+            - name: DB_HOSTNAME
+              value: immich-postgres
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_USERNAME
+              value: immich
+            - name: DB_DATABASE_NAME
+              value: immich
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich
+                  key: postgres-password
+            # Selects VectorChord over the pgvecto.rs also present in the
+            # database image. pgvecto.rs is only there so pre-3.0 installs can
+            # migrate off it; upstream dropped support for it in 3.0, so a
+            # fresh install must not use it.
+            - name: DB_VECTOR_EXTENSION
+              value: vectorchord
+            - name: REDIS_HOSTNAME
+              value: immich-redis
+            - name: REDIS_PORT
+              value: "6379"
+            # The image's own default, stated explicitly so the containerPort
+            # and Service below cannot drift away from it unnoticed.
+            - name: IMMICH_PORT
+              value: "2283"
+          ports:
+            - name: http
+              containerPort: 2283
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: library
+              mountPath: /data
+          # /api/server/ping — confirmed against v3.1.0's own OpenAPI spec,
+          # which declares /server/ping under the /api prefix. Older guides
+          # still cite /server-info/ping, which 404s on v3 and would leave the
+          # pod permanently unready.
+          #
+          # A startupProbe carries the slow first boot (schema migrations and
+          # the VectorChord extension setup run before the port opens), which
+          # is why the liveness probe can stay short without killing the pod
+          # mid-migration.
+          startupProbe:
+            httpGet:
+              path: /api/server/ping
+              port: http
+            periodSeconds: 10
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /api/server/ping
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /api/server/ping
+              port: http
+            periodSeconds: 10
+          # Upstream asks for 6GB minimum with ML enabled; without the ML tier
+          # the server itself is a Node process plus ffmpeg for transcoding,
+          # which is what the 2Gi ceiling is sized for. Raise the limit if
+          # video transcoding starts getting OOM-killed.
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: library
+          persistentVolumeClaim:
+            claimName: immich-library
