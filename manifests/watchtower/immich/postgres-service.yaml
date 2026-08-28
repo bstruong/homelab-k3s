@@ -1,0 +1,23 @@
+---
+# Headless (clusterIP: None), matching caster-postgres and appflowy-postgres.
+# A StatefulSet's serviceName must point at a headless Service for the per-pod
+# DNS name (immich-postgres-0.immich-postgres) to exist; with one replica the
+# short name is what the server actually uses, via DB_HOSTNAME.
+#
+# No external route: Postgres is never exposed through Traefik.
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-postgres
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-postgres
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: immich-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
