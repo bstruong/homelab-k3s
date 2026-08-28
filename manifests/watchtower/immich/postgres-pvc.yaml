@@ -1,0 +1,40 @@
+---
+# The PersistentVolume backing the StatefulSet's volumeClaimTemplate, the same
+# PV-plus-claimRef arrangement caster-postgres and appflowy-postgres use: the
+# volumeClaimTemplate in postgres-statefulset.yaml generates the PVC, and this
+# hand-written PV pre-binds to it. The `appdata` StorageClass has no
+# provisioner, so without a matching PV the generated PVC sits Pending forever.
+#
+# There is deliberately no PersistentVolumeClaim object here — writing one
+# would collide with the PVC the StatefulSet generates.
+#
+# 20Gi matches the other two Postgres instances. Immich's own docs put a
+# typical database at 1-3GB; the photo and video files themselves live on the
+# separate, much larger library volume in pvc.yaml, not in Postgres.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-postgres
+  labels:
+    app.kubernetes.io/name: immich-postgres
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/immich/postgres
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: immich
+    # StatefulSet volumeClaimTemplates generate PVC names of the form
+    # <template>-<statefulset>-<ordinal>.
+    name: data-immich-postgres-0
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]

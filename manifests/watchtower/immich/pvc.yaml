@@ -1,0 +1,60 @@
+---
+# The photo and video library — the upload location Immich mounts at /data.
+# Standalone PV plus PVC (the registry's arrangement) rather than the
+# PV-plus-claimRef used for the Postgres StatefulSet, because the server is a
+# Deployment and has no volumeClaimTemplate to bind against.
+#
+# 200Gi is nominal. The `appdata` StorageClass has no provisioner, so this
+# figure reserves nothing and enforces no quota — the real limit is free space
+# on /mnt/appdata (843G free at the time of writing, against roughly 1.5TiB
+# already nominally allocated across all PVs here). Treat this number as a
+# statement of intent and watch actual usage, not as a cap.
+#
+# Sized once, deliberately: the StorageClass sets allowVolumeExpansion: false,
+# so growing this later means recreating the PV rather than editing it.
+#
+# This directory must be ROOT-owned on the node, unlike the Postgres volume
+# beside it. immich-server's image declares no USER and runs as uid 0 while
+# dropping ALL capabilities — so it holds no CAP_DAC_OVERRIDE and gets no
+# permission bypass. Against a 1000-owned directory it could not create
+# anything; owning the directory outright is what makes it writable.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-library
+  labels:
+    app.kubernetes.io/name: immich
+spec:
+  capacity:
+    storage: 200Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/immich/library
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: immich
+    name: immich-library
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-library
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: immich-library
+  resources:
+    requests:
+      storage: 200Gi

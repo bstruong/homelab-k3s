@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik vaultwarden beszel paperless-ngx appflowy syncthing registry caster"
+ALL_APPS="traefik vaultwarden beszel paperless-ngx appflowy syncthing registry caster immich"
 
 MODE=""
 SHOW=false
@@ -111,6 +111,7 @@ app_namespace() {
     syncthing)         echo sync ;;
     registry)          echo infra ;;
     caster)            echo caster ;;
+    immich)            echo immich ;;
     *) die "unknown app: $1 (known: ${ALL_APPS})" ;;
   esac
 }
@@ -294,6 +295,32 @@ app_literals() {
       printf 'summary:CASTER secret_key_base (rotating this logs out all sessions)\n'
       printf 'literal:secret-key-base=%s\n' "${skb}"
       ;;
+
+    immich)
+      # POSTGRES_PASSWORD in the immich-postgres StatefulSet and DB_PASSWORD in
+      # the immich-server Deployment -- the same value, read from the same key.
+      #
+      # REUSED, not regenerated, whenever the live Secret already has one. This
+      # is the same trap documented in the caster case above: do_seal with
+      # --force rebuilds the whole Secret from this function's output, so
+      # generating a fresh password here would rotate it out from under a live
+      # database that still expects the old one, and immich-server would fail
+      # authentication until Postgres was reinitialised.
+      #
+      # gen() emits [A-Za-z0-9] only, which is required rather than merely
+      # tidy: upstream states the Immich database password must use only those
+      # characters, no special characters or spaces.
+      local pw
+      pw="$(kubectl get secret immich -n immich \
+              -o jsonpath='{.data.postgres-password}' 2>/dev/null \
+            | base64 -d 2>/dev/null || true)"
+      if [[ -z "${pw}" ]]; then
+        pw="$(gen 32)"
+      fi
+
+      printf 'summary:Immich postgres      immich / %s\n' "${pw}"
+      printf 'literal:postgres-password=%s\n' "${pw}"
+      ;;
   esac
 }
 
@@ -442,6 +469,7 @@ syncthing       sync         syncthing                gui-apikey
 registry        infra        registry-htpasswd        htpasswd
 caster          caster       caster                   postgres-password,
                                                       secret-key-base
+immich          immich       immich                   postgres-password
 
 Credentials that are NOT Kubernetes Secrets, because the app owns its own
 credential store and sets it up through a first-run wizard:

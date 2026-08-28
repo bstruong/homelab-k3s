@@ -1,0 +1,149 @@
+---
+# Immich's Postgres. Single-tenant, like caster-postgres — nothing else
+# connects to it. There is no shared Postgres on this cluster.
+#
+# This is NOT stock postgres. Immich's schema requires a vector extension
+# whether or not smart search is ever used, so this runs the image Immich
+# builds and tests against. The tag encodes what is inside it: VectorChord
+# 0.4.3 plus pgvecto.rs 0.2.0, on Postgres 14.
+#
+# VectorChord, not pgvecto.rs: upstream dropped pgvecto.rs support in Immich
+# 3.0 and requires migration to VectorChord. pgvectors is still in the image
+# only so existing installs can migrate off it; DB_VECTOR_EXTENSION in
+# deployment.yaml selects vectorchord for this fresh install.
+#
+# Do NOT add a command/args override here. The image's own CMD is
+#     postgres -c config_file=/etc/postgresql/postgresql.conf
+# and that config is generated at runtime by the image's entrypoint, which
+# copies /var/postgresql-conf-tpl/postgresql.${DB_STORAGE_TYPE}.conf into
+# place. That template carries
+#     shared_preload_libraries = 'vchord.so, vectors.so'
+# which is what makes the extensions loadable at all. Overriding the command
+# drops the config file and the extensions silently fail to load.
+#
+# For the same reason there is no readOnlyRootFilesystem on this container:
+# the entrypoint writes /etc/postgresql/postgresql.conf on every start.
+# /etc/postgresql is mode 1777 in the image, so a non-root uid can still do it.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: immich-postgres
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-postgres
+spec:
+  serviceName: immich-postgres
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: immich-postgres
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: immich-postgres
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        # uid/gid of the postgres user inside the image, same as
+        # caster-postgres and appflowy-postgres. /mnt/appdata/immich/postgres
+        # must be chown 999:999 on the node — hostPath's DirectoryOrCreate
+        # makes it root-owned, which this uid cannot write to.
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: postgres
+          # Pinned by digest, matching caster-postgres. The tag alone is
+          # already version-specific, but a re-push behind the same tag would
+          # otherwise land a different build under a live data directory with
+          # no manifest change and no review.
+          image: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23
+          env:
+            # The image's set-env.sh also accepts DB_USERNAME/DB_PASSWORD/
+            # DB_DATABASE_NAME as aliases for these. The POSTGRES_* spellings
+            # are used here because they are what the upstream entrypoint
+            # documents, and they read the same as the other two Postgres
+            # instances in this repo.
+            #
+            # Username and database name are plain values, not sealed. Only the
+            # password is a credential; sealing a username buys nothing and
+            # would stop the pg_isready probes below from naming it literally.
+            - name: POSTGRES_USER
+              value: immich
+            - name: POSTGRES_DB
+              value: immich
+            # PGDATA lives in a subdirectory of the mount on purpose: the
+            # volume root is not empty (lost+found on ext4) and initdb refuses
+            # to run in a non-empty directory. The image's entrypoint
+            # substitutes this value into the generated config's
+            # data_directory, so the two cannot drift apart.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            # Already the image default, set explicitly because it selects
+            # which postgresql.conf template is used — /mnt/appdata is a
+            # Samsung 860 EVO, so SSD is correct. HDD would relax
+            # random_page_cost and effective_io_concurrency for spinning rust.
+            - name: DB_STORAGE_TYPE
+              value: SSD
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: immich
+                  key: postgres-password
+          ports:
+            - name: postgres
+              containerPort: 5432
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            - name: run
+              mountPath: /var/run/postgresql
+            - name: tmp
+              mountPath: /tmp
+          # -U immich -d immich: POSTGRES_USER renames the superuser, so no
+          # `postgres` role exists here. Naming the database explicitly avoids
+          # the FATAL-every-10s log noise documented on caster-postgres, where
+          # pg_isready defaults dbname to the username.
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "immich", "-d", "immich"]
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "immich", "-d", "immich"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          # Higher memory than caster-postgres: the config template sets
+          # shared_buffers = 512MB on its own, so a 1Gi limit would leave the
+          # server almost no room above its own buffer pool.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 640Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: run
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: appdata
+        resources:
+          requests:
+            storage: 20Gi

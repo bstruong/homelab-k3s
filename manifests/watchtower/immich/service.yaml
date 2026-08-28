@@ -1,0 +1,22 @@
+---
+# A normal ClusterIP, deliberately NOT headless like postgres-service.yaml
+# beside it. That one is headless because a StatefulSet needs stable per-pod
+# DNS; this is the app tier Traefik routes to, so a virtual IP is what it
+# wants.
+apiVersion: v1
+kind: Service
+metadata:
+  name: immich-server
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich-server
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: immich-server
+  ports:
+    - name: http
+      port: 2283
+      # The named port, not a bare 2283, so this stays correct if the
+      # container's port ever moves.
+      targetPort: http
