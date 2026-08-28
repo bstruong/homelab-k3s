@@ -93,3 +93,21 @@ metadata:
     # namespace rather than a shared one — its Postgres is single-tenant, not
     # the `docs` instance, which belongs to AppFlowy.
     pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: immich
+  labels:
+    homelab.watchtower/stack: watchtower
+    # baseline, not restricted: the immich-server image declares no USER and
+    # upstream runs it as root, which restricted forbids. It still drops ALL
+    # capabilities and disables privilege escalation, so it is root without
+    # root's powers. Same reasoning as `odysseus`. Its Postgres (uid 999) and
+    # Redis (uid 1000) are both restricted-compliant regardless.
+    #
+    # Immich's own namespace rather than joining `media` with Jellyfin: it
+    # brings a full stateful tier of its own (Postgres + Redis), which is the
+    # same reason `caster` is separate, and `media` is baseline for Jellyfin's
+    # reasons rather than these.
+    pod-security.kubernetes.io/enforce: baseline

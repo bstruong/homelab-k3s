@@ -1,0 +1,52 @@
+---
+# immich.watchtower.local
+#
+# HTTPS-only with HTTP redirected — the caster / pocket-id / vaultwarden
+# pattern, not the registry's serve-both-schemes one. Immich is a
+# browser-facing app with session cookies and a mobile client, so everything
+# belongs on TLS.
+#
+# Note for when the mobile app is set up later: it must be pointed at
+# https://immich.watchtower.local/api, and it will only work from inside the
+# LAN. There is no external exposure here by design.
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: immich-redirect-https
+  namespace: immich
+spec:
+  redirectScheme:
+    scheme: https
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: immich-http
+  namespace: immich
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`immich.watchtower.local`)
+      middlewares:
+        - name: immich-redirect-https
+      services:
+        - name: immich-server
+          port: 2283
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: immich-https
+  namespace: immich
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`immich.watchtower.local`)
+      services:
+        - name: immich-server
+          port: 2283
+  tls:
+    secretName: immich-tls
