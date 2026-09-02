@@ -39,7 +39,7 @@ spec:
           # floats and would silently move under us on the next upstream
           # push. NOTE: this is ahead of fork/dev, which is kept as a pure
           # mirror of origin/dev and does not contain this merge.
-          image: ghcr.io/bstruong/odysseus:1.0.2-merged.64589cd
+          image: ghcr.io/bstruong/odysseus:ce04dc1
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
