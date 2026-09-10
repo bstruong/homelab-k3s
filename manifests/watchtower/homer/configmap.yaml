@@ -124,6 +124,10 @@ data:
       - name: "Media & Home"
         icon: "fas fa-house"
         items:
+          - name: "Immich"
+            subtitle: "Photo and video backup"
+            icon: "fas fa-images"
+            url: "https://immich.watchtower.local"
           - name: "Jellyfin"
             subtitle: "Media library"
             icon: "fas fa-film"
