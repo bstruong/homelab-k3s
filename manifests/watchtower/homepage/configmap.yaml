@@ -25,6 +25,9 @@ data:
       Sync & Home:
         style: row
         columns: 4
+      Practice & Katas:
+        style: row
+        columns: 4
 
   # Widget API keys belong in the Secret, referenced as {{HOMEPAGE_VAR_*}}.
   # Never inline a key here — this file is committed to a public repository.
@@ -165,6 +168,28 @@ data:
             description: Home automation
             namespace: home
             app: home-assistant
+
+    - Practice & Katas:
+        - Ruby Dojo:
+            href: https://ruby-dojo.watchtower.local
+            description: Ruby, Rails, and RSpec Katas
+            icon: si-ruby
+        - Python Dojo:
+            href: https://python-dojo.watchtower.local
+            description: Interactive Python exercises
+            icon: si-python
+        - Vim Dojo:
+            href: https://vim-dojo.watchtower.local
+            description: Vim muscle memory drills
+            icon: si-vim
+        - Interview Dojo:
+            href: https://interview-dojo.watchtower.local
+            description: System Design and Behavioral prep
+            icon: si-google
+        - DSA Dojo:
+            href: https://dsa-dojo.watchtower.local
+            description: Data Structures and Algorithms
+            icon: si-leetcode
 
   widgets.yaml: |
     - resources:
