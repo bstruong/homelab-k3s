@@ -132,6 +132,7 @@ data:
               url: http://immich-server.immich:2283
               key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
               version: 1
+              fields: ["photos", "videos", "storage"]
         - Jellyfin:
             href: https://jellyfin.watchtower.local
             description: Media library
