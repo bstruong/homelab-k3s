@@ -133,6 +133,7 @@ data:
             description: Photo and video backup
             namespace: immich
             app: immich-server
+            siteMonitor: http://immich-server.immich:2283/api/server/ping
         - Jellyfin:
             icon: jellyfin.png
             href: https://jellyfin.watchtower.local
