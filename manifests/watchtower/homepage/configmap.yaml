@@ -123,16 +123,10 @@ data:
 
     - Media & Documents:
         - Immich:
+            icon: immich.svg
             href: https://immich.watchtower.local
             description: Photo and video backup
-            namespace: immich
-            app: immich-server
-            widget:
-              type: immich
-              url: http://immich-server.immich:2283
-              key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
-              version: 1
-              fields: ["photos", "videos", "storage"]
+            siteMonitor: https://immich.watchtower.local
         - Jellyfin:
             href: https://jellyfin.watchtower.local
             description: Media library
