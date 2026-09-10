@@ -122,7 +122,6 @@ data:
             app: pocket-id
 
     - Media & Documents:
-        - Jellyfin:
         - Immich:
             href: https://immich.watchtower.local
             description: Photo and video backup
@@ -133,6 +132,7 @@ data:
               url: http://immich-server.immich:2283
               key: "{{HOMEPAGE_VAR_IMMICH_KEY}}"
               version: 1
+        - Jellyfin:
             href: https://jellyfin.watchtower.local
             description: Media library
             namespace: media
