@@ -131,7 +131,8 @@ data:
             icon: immich.svg
             href: https://immich.watchtower.local
             description: Photo and video backup
-            siteMonitor: http://immich-server.immich:2283/api/server/ping
+            namespace: immich
+            app: immich-server
         - Jellyfin:
             icon: jellyfin.png
             href: https://jellyfin.watchtower.local
