@@ -126,7 +126,7 @@ data:
             icon: immich.svg
             href: https://immich.watchtower.local
             description: Photo and video backup
-            siteMonitor: https://immich.watchtower.local
+            siteMonitor: http://immich-server.immich:2283/api/server/ping
         - Jellyfin:
             href: https://jellyfin.watchtower.local
             description: Media library
