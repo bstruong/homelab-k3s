@@ -126,7 +126,7 @@ data:
             icon: appflowy.png
             href: https://appflowy.watchtower.local
             description: Knowledge base and notes
-            siteMonitor: https://appflowy.watchtower.local
+            siteMonitor: http://appflowy-cloud.docs:8000
         - Immich:
             icon: immich.svg
             href: https://immich.watchtower.local
@@ -138,12 +138,12 @@ data:
             icon: jellyfin.png
             href: https://jellyfin.watchtower.local
             description: Media library
-            siteMonitor: https://jellyfin.watchtower.local
+            siteMonitor: http://jellyfin.media:8096/health
         - Paperless-ngx:
             icon: paperless.png
             href: https://paperless.watchtower.local
             description: Document archive and OCR
-            siteMonitor: https://paperless.watchtower.local
+            siteMonitor: http://paperless-ngx.docs:8000
 
     - Sync & Home:
         - Syncthing:
