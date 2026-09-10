@@ -122,40 +122,26 @@ data:
             app: pocket-id
 
     - Media & Documents:
+        - AppFlowy:
+            icon: appflowy.png
+            href: https://appflowy.watchtower.local
+            description: Knowledge base and notes
+            siteMonitor: https://appflowy.watchtower.local
         - Immich:
             icon: immich.svg
             href: https://immich.watchtower.local
             description: Photo and video backup
             siteMonitor: http://immich-server.immich:2283/api/server/ping
         - Jellyfin:
+            icon: jellyfin.png
             href: https://jellyfin.watchtower.local
             description: Media library
-            namespace: media
-            app: jellyfin
-            # Homepage has no `jellyfin` widget type; Jellyfin is covered by the
-            # emby widget, which speaks the same API.
-            widget:
-              type: emby
-              url: http://jellyfin.media:8096
-              key: {{HOMEPAGE_VAR_JELLYFIN_KEY}}
+            siteMonitor: https://jellyfin.watchtower.local
         - Paperless-ngx:
+            icon: paperless.png
             href: https://paperless.watchtower.local
-            description: Document archive
-            namespace: docs
-            app: paperless-ngx
-            # Live inbox/total document counts. The API token is injected from
-            # the homepage-widgets SealedSecret via envFrom and substituted
-            # here at config-load time — this ConfigMap is committed to a
-            # PUBLIC repo, so no credential may appear in it literally.
-            widget:
-              type: paperlessngx
-              url: http://paperless-ngx.docs:8000
-              key: {{HOMEPAGE_VAR_PAPERLESS_TOKEN}}
-        - AppFlowy:
-            href: https://appflowy.watchtower.local
-            description: Notes and docs
-            namespace: docs
-            app: appflowy-cloud
+            description: Document archive and OCR
+            siteMonitor: https://paperless.watchtower.local
 
     - Sync & Home:
         - Syncthing:
