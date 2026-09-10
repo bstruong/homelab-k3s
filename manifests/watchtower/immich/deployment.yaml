@@ -124,6 +124,9 @@ spec:
           volumeMounts:
             - name: library
               mountPath: /data
+            - name: external-legacy-photos
+              mountPath: /usr/src/app/external/legacy_photos
+              readOnly: true
           # /api/server/ping — confirmed against v3.1.0's own OpenAPI spec,
           # which declares /server/ping under the /api prefix. Older guides
           # still cite /server-info/ping, which 404s on v3 and would leave the
@@ -164,3 +167,7 @@ spec:
         - name: library
           persistentVolumeClaim:
             claimName: immich-library
+        - name: external-legacy-photos
+          hostPath:
+            path: /mnt/appdata/staging/photos
+            type: Directory
