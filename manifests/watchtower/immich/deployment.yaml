@@ -49,6 +49,35 @@ spec:
         seccompProfile:
           type: RuntimeDefault
       initContainers:
+        # Self-healing volume permissions: immich-server runs as uid 0 but drops
+        # all capabilities (no CAP_DAC_OVERRIDE). If the library was restored with
+        # non-root ownership (e.g. 1000:1000) or missing subdirectories, this init
+        # container ensures the layout exists and is writable by root.
+        - name: init-library-permissions
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data/upload /data/profile /data/thumbs /data/encoded-video
+              chown -R 0:0 /data
+              chmod -R u+rwX /data
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          volumeMounts:
+            - name: library
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
         # Immich retries its database connection on boot, but noisily and for
         # a long time. Waiting here keeps the first minute of server logs
         # readable, the same reason caster does it.

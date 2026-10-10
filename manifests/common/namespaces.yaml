@@ -13,7 +13,12 @@ metadata:
   name: identity
   labels:
     homelab.watchtower/stack: watchtower
-    pod-security.kubernetes.io/enforce: restricted
+    # baseline allows pod-level self-healing volume permission initContainers
+    # (chown 1000:1000) for hostPath volumes without manual host interventions.
+    # Auditing and warnings remain pinned to restricted.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
 ---
 apiVersion: v1
 kind: Namespace
@@ -73,13 +78,12 @@ metadata:
   name: infra
   labels:
     homelab.watchtower/stack: watchtower
-    # restricted, not baseline: the registry pod runs as uid 1000, drops ALL
-    # capabilities and sets seccomp RuntimeDefault, so it already complies.
-    # The hostPath-backed PV is not a problem — restricted constrains the
-    # pod's volume *types* (persistentVolumeClaim is allowed), not what the
-    # PV happens to be backed by. Same arrangement as vaultwarden in
-    # `identity`, which is also restricted.
-    pod-security.kubernetes.io/enforce: restricted
+    # baseline allows pod-level self-healing volume permission initContainers
+    # (chown 1000:1000) for hostPath volumes without manual host interventions.
+    # Auditing and warnings remain pinned to restricted.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
 ---
 apiVersion: v1
 kind: Namespace
@@ -87,12 +91,11 @@ metadata:
   name: caster
   labels:
     homelab.watchtower/stack: watchtower
-    # restricted: Postgres runs as uid 999 and the Rails app as uid 1000, both
-    # non-root, both dropping ALL capabilities with seccomp RuntimeDefault.
-    # Same posture as `infra` and `identity`. Note this is CASTER's own
-    # namespace rather than a shared one — its Postgres is single-tenant, not
-    # the `docs` instance, which belongs to AppFlowy.
-    pod-security.kubernetes.io/enforce: restricted
+    # baseline allows the postgres self-healing initContainer (chown 999:999,
+    # chmod 700) to ensure data directory permissions without manual host chown.
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
 ---
 apiVersion: v1
 kind: Namespace
