@@ -1,0 +1,172 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dsa-dojo-http
+  namespace: dojo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`dsa-dojo.watchtower.local`)
+      middlewares:
+        - name: dsa-dojo-prefix
+      services:
+        - name: dojos-static
+          port: 8880
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dsa-dojo-https
+  namespace: dojo
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`dsa-dojo.watchtower.local`)
+      middlewares:
+        - name: dsa-dojo-prefix
+      services:
+        - name: dojos-static
+          port: 8880
+  tls:
+    secretName: dsa-dojo-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: interview-dojo-http
+  namespace: dojo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`interview-dojo.watchtower.local`)
+      middlewares:
+        - name: interview-dojo-prefix
+      services:
+        - name: dojos-static
+          port: 8880
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: interview-dojo-https
+  namespace: dojo
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`interview-dojo.watchtower.local`)
+      middlewares:
+        - name: interview-dojo-prefix
+      services:
+        - name: dojos-static
+          port: 8880
+  tls:
+    secretName: interview-dojo-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: python-dojo-http
+  namespace: dojo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`python-dojo.watchtower.local`)
+      services:
+        - name: python-dojo
+          port: 8888
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: python-dojo-https
+  namespace: dojo
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`python-dojo.watchtower.local`)
+      services:
+        - name: python-dojo
+          port: 8888
+  tls:
+    secretName: python-dojo-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ruby-dojo-http
+  namespace: dojo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`ruby-dojo.watchtower.local`)
+      services:
+        - name: ruby-dojo
+          port: 8882
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: ruby-dojo-https
+  namespace: dojo
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`ruby-dojo.watchtower.local`)
+      services:
+        - name: ruby-dojo
+          port: 8882
+  tls:
+    secretName: ruby-dojo-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vim-dojo-http
+  namespace: dojo
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`vim-dojo.watchtower.local`)
+      middlewares:
+        - name: vim-dojo-prefix
+      services:
+        - name: dojos-static
+          port: 8880
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: vim-dojo-https
+  namespace: dojo
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`vim-dojo.watchtower.local`)
+      middlewares:
+        - name: vim-dojo-prefix
+      services:
+        - name: dojos-static
+          port: 8880
+  tls:
+    secretName: vim-dojo-tls
