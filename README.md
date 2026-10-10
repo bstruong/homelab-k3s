@@ -51,7 +51,7 @@ git add manifests/watchtower/*/sealedsecret.yaml && git commit
 Then:
 
 ```sh
-./deploy.sh jellyfin                       # one app
+./deploy.sh immich                       # one app
 ./deploy.sh --validate                     # report current state
 ./scripts/secrets.sh check                 # what exists, in repo and cluster
 ```
@@ -69,9 +69,9 @@ convenience, not self-healing — those pods stay in
 per app. See [docs/SECRETS.md](docs/SECRETS.md#required-vs-optional).
 
 Read [docs/SECRETS.md](docs/SECRETS.md) first. Several apps (AdGuard Home,
-Jellyfin, Home Assistant, Pocket ID, Uptime Kuma, Beszel) have first-run wizard
-steps that no manifest can perform, and Beszel in particular has to be deployed
-before its agent's credential can exist.
+Pocket ID, Uptime Kuma, Beszel) have first-run wizard steps that no manifest
+can perform, and Beszel in particular has to be deployed before its agent's
+credential can exist.
 
 ## Apps
 
@@ -83,13 +83,10 @@ before its agent's credential can exist.
 | Vaultwarden | `identity` | `vault.watchtower.local` | Signups closed; HTTP redirects to HTTPS |
 | Beszel | `monitoring` | `beszel.watchtower.local` | Hub Deployment + Agent DaemonSet |
 | Uptime Kuma | `monitoring` | `status.watchtower.local` | `NET_RAW` for ICMP monitors |
-| Jellyfin | `media` | `jellyfin.watchtower.local` | Direct Play only, transcoding off |
 | Paperless-ngx | `docs` | `paperless.watchtower.local` | Worker concurrency pinned to 1; SQLite + Redis |
-| AppFlowy | `docs` | `appflowy.watchtower.local` | appflowy-cloud + Postgres + GoTrue + Redis + MinIO |
-| Syncthing | `sync` | `syncthing.watchtower.local` | Sync ports exposed to the LAN separately |
-| PairDrop | `sync` | `drop.watchtower.local` | Stateless; HTTPS-only for WebRTC |
-| Home Assistant | `home` | `home.watchtower.local` | Root required (s6-overlay) |
-| Homepage | `home` | `watchtower.local` | The front door; read-only cluster RBAC |
+| Immich | `immich` | `immich.watchtower.local` | Photo and video backup; PostgreSQL 14 + VectorChord |
+| Registry | `infra` | `registry.watchtower.local` | Private container registry with htpasswd auth |
+| Caster | `caster` | `caster.watchtower.local` | Single-tenant Rails application + PostgreSQL 16 |
 | Homer | `home` | `start.watchtower.local` | Static landing page; one ConfigMap, no database, no widgets |
 
 Cockpit runs on the host, not in k3s, and is deliberately absent here.
@@ -101,19 +98,10 @@ Watchtower node. Each app gets a statically defined `PersistentVolume`
 (`hostPath`, `storageClassName: appdata`) bound one-to-one to its PVC through
 `claimRef`, so a PVC can never bind to another app's data. Reclaim policy is
 `Retain` — deleting a PVC never deletes data on disk. `deploy.sh` prints the
-`mkdir`/`chown` commands the node needs, including the three directories not
-owned by uid 1000: AdGuard Home and Home Assistant are `0:0`, and AppFlowy's
-Postgres is `999:999`.
+`mkdir` commands the node needs if any directories are missing.
 
-**Backups.** Only the two Odysseus volumes are backed up so far, by
-`scripts/backup-odysseus-volumes.sh` on a daily user crontab on Watchtower
-(`15 3 * * *`). It scales `odysseus` and `chromadb` to zero before archiving:
-both keep SQLite in rollback-journal mode, not WAL, and `/mnt/appdata` is ext4
-with no LVM, so there is no snapshot available and a live copy can be torn.
-The outage is a few seconds. Archives go to `/mnt/appdata/backups` and are
-copied to Metrotower at `~/backups/watchtower/odysseus/`, keeping 7 of each.
-Same-disk copies do not survive the disk dying — the off-host copy is the real
-protection. Restore steps are documented at the bottom of the script.
+**Backups.** Full node and appdata backups are taken to `/mnt/Archive` or
+off-host storage prior to node maintenance and migrations.
 
 **Node pinning.** The volumes are host paths, so every workload carries
 `nodeSelector: kubernetes.io/hostname: watchtower` and every PV a matching
@@ -123,7 +111,7 @@ and set `WATCHTOWER_NODE` for `deploy.sh`.
 **Ingress.** One Traefik `IngressRoute` per app on `*.watchtower.local`, with
 an HTTP route and an HTTPS route. HTTPS uses Traefik's default self-signed
 certificate, which browsers warn about on a `.local` domain. Apps that require
-a secure context — Pocket ID (passkeys), PairDrop (WebRTC), Vaultwarden — get a
+a secure context — Pocket ID (passkeys), Vaultwarden — get a
 redirect middleware instead of a plain HTTP route. Point the hostnames at the
 Traefik LoadBalancer IP in AdGuard Home; `./deploy.sh --validate` prints the
 exact entries.
@@ -144,8 +132,6 @@ The exceptions, each documented at the top of its manifest:
 | AdGuard Home | root + `NET_BIND_SERVICE` | its first-launch check is a bare `os.Getuid() == 0` test, which no capability can satisfy |
 | Uptime Kuma | starts as root, adds `CHOWN`, `SETUID`, `SETGID`, `NET_RAW` | its entrypoint chowns the data volume and then drops to uid 1000 via `setpriv`; the app process itself is unprivileged |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
-| Home Assistant | root | s6-overlay has no supported non-root mode |
-| Homepage | mounts a token | its widgets read workload status; the ClusterRole is read-only and lists no secrets |
 
 **Host volume ownership.** `fsGroup` does not automatically recurse through in-tree `hostPath`
 volumes. To eliminate brittle manual host `chown` steps, workloads feature self-healing
@@ -170,23 +156,6 @@ configuration that works at homelab document volumes.
 `PAPERLESS_TASK_WORKERS`, `PAPERLESS_THREADS_PER_WORKER` and
 `PAPERLESS_WEBSERVER_WORKERS` are all `1`, so OCR processes documents serially
 and cannot saturate the node. Move to Postgres past a few thousand documents.
-
-**Jellyfin** is Direct Play only. The `encoding.xml` ConfigMap is seeded by an
-init container that never overwrites an existing file, so UI changes survive.
-The per-user transcoding toggles live in Jellyfin's database and must be
-cleared by hand — see docs/SECRETS.md. Its media library is mounted read-only
-from `/mnt/media`, not `/mnt/appdata`; adjust that path in
-`manifests/watchtower/jellyfin/pvc.yaml`.
-
-**AppFlowy** needs more than a database: appflowy-cloud, GoTrue for auth, Redis
-for pub/sub, and S3-compatible storage for attachments (MinIO here). Its images
-are the one thing in this repo not version-pinned, because upstream ships
-appflowy-cloud and GoTrue as a matched pair — pin both to the tags from the
-`docker-compose.yml` of the release you intend to run.
-
-**Home Assistant** does not use `hostNetwork`, so mDNS/DHCP/SSDP discovery will
-not find devices. If you depend on those integrations, enable it — the manifest
-says exactly what to change.
 
 **Tailscale is deliberately not in this stack.** It was removed, and re-adding
 it as a workload will not work. Watchtower already runs `tailscaled` as a host
