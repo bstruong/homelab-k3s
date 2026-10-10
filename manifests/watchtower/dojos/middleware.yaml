@@ -1,0 +1,27 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: dsa-dojo-prefix
+  namespace: dojo
+spec:
+  addPrefix:
+    prefix: /dsa-dojo
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: interview-dojo-prefix
+  namespace: dojo
+spec:
+  addPrefix:
+    prefix: /interview-dojo
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: vim-dojo-prefix
+  namespace: dojo
+spec:
+  addPrefix:
+    prefix: /vim-dojo

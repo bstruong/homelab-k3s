@@ -1,0 +1,75 @@
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: dsa-dojo-tls
+  namespace: dojo
+spec:
+  secretName: dsa-dojo-tls
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - dsa-dojo.watchtower.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: watchtower-ca-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: interview-dojo-tls
+  namespace: dojo
+spec:
+  secretName: interview-dojo-tls
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - interview-dojo.watchtower.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: watchtower-ca-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: python-dojo-tls
+  namespace: dojo
+spec:
+  secretName: python-dojo-tls
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - python-dojo.watchtower.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: watchtower-ca-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: ruby-dojo-tls
+  namespace: dojo
+spec:
+  secretName: ruby-dojo-tls
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - ruby-dojo.watchtower.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: watchtower-ca-issuer
+---
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: vim-dojo-tls
+  namespace: dojo
+spec:
+  secretName: vim-dojo-tls
+  duration: 2160h
+  renewBefore: 360h
+  dnsNames:
+    - vim-dojo.watchtower.local
+  issuerRef:
+    kind: ClusterIssuer
+    name: watchtower-ca-issuer
