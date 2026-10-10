@@ -70,20 +70,14 @@ data:
       - name: "Infrastructure"
         icon: "fas fa-network-wired"
         items:
-          - name: "Traefik"
-            subtitle: "Ingress controller"
-            icon: "fas fa-diagram-project"
-            # The dashboard only answers under /dashboard/; the bare host is
-            # not routed. Trailing slash is required or Traefik 404s.
-            url: "https://traefik.watchtower.local/dashboard/"
+          - name: "Cockpit"
+            subtitle: "Fedora Server admin portal"
+            icon: "fas fa-server"
+            url: "https://192.168.1.92:9090"
           - name: "AdGuard Home"
             subtitle: "DNS and ad blocking"
             icon: "fas fa-shield-halved"
             url: "https://dns.watchtower.local"
-          - name: "Registry"
-            subtitle: "Private container registry"
-            icon: "fas fa-box"
-            url: "https://registry.watchtower.local"
 
       - name: "Monitoring"
         icon: "fas fa-gauge-high"
