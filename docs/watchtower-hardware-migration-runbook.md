@@ -68,6 +68,21 @@ gitGraph
    commit id: "Permissions, Backup, Dojos"
    checkout main
    merge pre-migration-resilience id: "PR #8 Merged"
+   branch migration-runbook
+   checkout migration-runbook
+   commit id: "Add migration runbook"
+   checkout main
+   merge migration-runbook id: "PR #9 Merged"
+   branch fix-backup-script
+   checkout fix-backup-script
+   commit id: "Fix backup DB users"
+   checkout main
+   merge fix-backup-script id: "PR #10 Merged"
+   branch browser-ca-trust
+   checkout browser-ca-trust
+   commit id: "Browser CA trust (Firefox & Brave)"
+   checkout main
+   merge browser-ca-trust id: "PR #11"
 ```
 
 1. **[PR #3 Merged](https://github.com/bstruong/homelab-k3s/pull/3): Prune Deprecated Workload Manifests**
@@ -86,6 +101,12 @@ gitGraph
    * **Authoritative Permissions Ledger ([`scripts/reconcile-appdata-permissions.sh`](file:///home/brian/Projects/homelab-k3s/scripts/reconcile-appdata-permissions.sh)):** Enforces exact audited UIDs and modes across all appdata paths.
    * **Off-Host Automated Backup ([`scripts/backup-appdata.sh`](file:///home/brian/Projects/homelab-k3s/scripts/backup-appdata.sh)):** Automated PostgreSQL dumps, SQLite backups, secret extraction, and `--numeric-ids` rsync to Metrotower's `/mnt/Archive`.
    * **Dojo Stack GitOps Manifests ([`manifests/watchtower/dojos/`](file:///home/brian/Projects/homelab-k3s/manifests/watchtower/dojos/)):** Fully declarative Services, Endpoints, Certificates, Middlewares, and IngressRoutes for all 5 dojos, bringing them into GitOps. Deployed and verified live.
+7. **[PR #9 Merged](https://github.com/bstruong/homelab-k3s/pull/9): Master Hardware Migration Runbook**
+   * Authored comprehensive runbook capturing migration plan, pre-flight checklists, provisioning steps, and verification matrix.
+8. **[PR #10 Merged](https://github.com/bstruong/homelab-k3s/pull/10): Backup Script Database User & SQLite Fixes**
+   * Corrected PostgreSQL superusers (`caster`, `immich`), switched SQLite backups to Python `sqlite3.backup()` for hot-consistency, and excluded pruned workloads.
+9. **[PR #11](https://github.com/bstruong/homelab-k3s/pull/11): Client Browser CA Trust Configuration**
+   * Added Step 8 detailing Root CA trust installation for Firefox/Zen and Brave on both MacBook Air and Metrotower, plus verification checklists.
 
 ---
 
@@ -325,6 +346,89 @@ Once the `adguard-home` pod is confirmed `1/1 Running`:
 
 ---
 
+### Step 8: Client Browser Root CA Trust & Verification (Firefox/Zen & Brave)
+> [!IMPORTANT]
+> All in-cluster HTTPS services (`*.watchtower.local`) and Cockpit (`https://watchtower.local:9090`) present TLS certificates signed by `Watchtower Homelab Intermediate CA`, chaining to the offline `Watchtower Homelab Root CA`.
+> To prevent certificate security warnings (`SEC_ERROR_UNKNOWN_ISSUER` or `NET::ERR_CERT_AUTHORITY_INVALID`) when loading web pages, both **Firefox (or Zen Browser)** and **Brave** on **MacBook Air** and **Metrotower** must trust the Root CA.
+
+#### 1. Public Root CA Certificate Location
+* **On MacBook Air**: Staged in `~/migration-bundle/homelab-ca/ca.crt` (or `/Users/briantruong/migration-bundle/homelab-ca/ca.crt`).
+* **On Metrotower**: Located at `/home/brian/watchtower-ca.crt` (or `/mnt/Archive/watchtower-backup/appdata/homelab-ca/ca.crt`).
+
+#### 2. MacBook Air Configuration
+
+##### A. Brave Browser (macOS)
+Brave on macOS natively queries the Apple System Keychain via the Security Framework.
+1. Verify the certificate is present in `/Library/Keychains/System.keychain`:
+   ```bash
+   security find-certificate -c "Watchtower Homelab Root CA" /Library/Keychains/System.keychain
+   ```
+2. If missing on a clean machine or fresh install, install and trust it:
+   ```bash
+   sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain ~/migration-bundle/homelab-ca/ca.crt
+   ```
+3. Restart Brave.
+
+##### B. Firefox & Zen Browser (macOS)
+Firefox and Zen Browser manage an independent NSS database (`cert9.db`) by default.
+* **Method 1 (Recommended - Native Enterprise Roots)**:
+  Configure Firefox/Zen to trust all CAs in the macOS System Keychain:
+  1. Open `about:config` in Firefox or Zen.
+  2. Search for `security.enterprise_roots.enabled`.
+  3. Toggle the value to **`true`**.
+  *(Alternatively, add `user_pref("security.enterprise_roots.enabled", true);` to `user.js` in your active profile).*
+* **Method 2 (Direct NSS Database Import via `certutil`)**:
+  ```bash
+  for profile in ~/Library/Application\ Support/{Firefox,zen}/Profiles/*; do
+    if [ -f "$profile/cert9.db" ]; then
+      certutil -A -n "Watchtower Homelab Root CA" -t "CT,," \
+        -i ~/migration-bundle/homelab-ca/ca.crt \
+        -d sql:"$profile"
+    fi
+  done
+  ```
+
+#### 3. Metrotower (Linux Workstation) Configuration
+
+##### A. Brave Browser (Linux)
+On Linux, Brave/Chromium relies on both the user NSS database (`~/.pki/nssdb`) and system PKI anchors.
+1. Import into the user NSS store:
+   ```bash
+   mkdir -p ~/.pki/nssdb
+   certutil -d sql:$HOME/.pki/nssdb -A -t "C,," -n "Watchtower Homelab Root CA" -i /home/brian/watchtower-ca.crt
+   ```
+2. Verify:
+   ```bash
+   certutil -d sql:$HOME/.pki/nssdb -L -n "Watchtower Homelab Root CA"
+   ```
+3. Ensure system PKI trust is also populated for system-level CLI and Chromium tools:
+   * **Arch / EndeavourOS**:
+     ```bash
+     sudo cp /home/brian/watchtower-ca.crt /etc/ca-certificates/trust-source/anchors/
+     sudo trust extract-compat
+     ```
+   * **Fedora / RHEL**:
+     ```bash
+     sudo cp /home/brian/watchtower-ca.crt /etc/pki/ca-trust/source/anchors/
+     sudo update-ca-trust
+     ```
+
+##### B. Firefox (Linux)
+1. Verify or import the Root CA into the default Firefox profile NSS database:
+   ```bash
+   # Check existing trust:
+   certutil -L -d sql:/home/brian/.mozilla/firefox/*.default-release | grep "Watchtower Homelab Root CA"
+
+   # Import if missing:
+   certutil -A -n "Watchtower Homelab Root CA" -t "CT,," \
+     -i /home/brian/watchtower-ca.crt \
+     -d sql:/home/brian/.mozilla/firefox/*.default-release
+   ```
+2. Restart Firefox.
+
+---
+
+
 ## 5. Critical Gotchas & Guardrails
 
 | Risk Area | Gotcha / Hazard | Prevention / Resolution |
@@ -338,6 +442,7 @@ Once the `adguard-home` pod is confirmed `1/1 Running`:
 | **DNS Lockout** | Powering down Watchtower without setting router DNS fallback. | Client machines and installer will lose all DNS resolution. Set router DNS to `1.1.1.1` before powering down. |
 | **AI Model Constraint** | Agent using `qwen3.8-flash` on server. | **Strict constraint:** Absolutely NO `qwen3.8-flash` on Watchtower. Only `qwen36-coder-hybrid`. |
 | **Headscale/Tailscale** | Attempting to migrate Headscale to official Tailscale. | Explicitly postponed by user. Headscale remains on host daemon. |
+| **Browser TLS Trust** | Firefox, Zen, or Brave showing `SEC_ERROR_UNKNOWN_ISSUER` or `NET::ERR_CERT_AUTHORITY_INVALID`. | Follow Step 8 to configure NSS db (`~/.pki/nssdb`, Firefox profile) and enterprise roots (`security.enterprise_roots.enabled`). |
 
 ---
 
@@ -363,4 +468,9 @@ Once post-migration bootstrap is complete, verify each service against this chec
 [ ] https://vim-dojo.watchtower.local    - Vim Dojo exercises live
 [ ] https://dsa-dojo.watchtower.local    - DSA Dojo exercises live
 [ ] https://interview-dojo.watchtower.local - Interview Dojo prep live
+[ ] MacBook Air Firefox/Zen              - Green lock on *.watchtower.local (no cert warnings)
+[ ] MacBook Air Brave                    - Green lock on *.watchtower.local (no cert warnings)
+[ ] Metrotower Firefox                   - Green lock on *.watchtower.local (no cert warnings)
+[ ] Metrotower Brave                     - Green lock on *.watchtower.local (no cert warnings)
 ```
+
