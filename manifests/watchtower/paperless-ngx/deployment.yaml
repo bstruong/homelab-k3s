@@ -22,38 +22,33 @@ spec:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
         fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
         seccompProfile:
           type: RuntimeDefault
       initContainers:
-        # The image's entrypoint expects to own its data directories. It runs
-        # unprivileged here, so create the layout up front with the right
-        # ownership (fsGroup handles the group bit) instead of letting the
-        # entrypoint attempt a chown it cannot perform.
+        # Self-healing volume layout and permissions: the container runs as
+        # uid 1000, but hostPath/DirectoryOrCreate mounts can be root-owned.
+        # This init container runs as root, creates the subdirectories, and
+        # chowns them to 1000:1000 so the unprivileged app can write immediately.
         - name: init-dirs
           image: busybox:1.37
-          command: ["sh", "-c", "mkdir -p /data /media /consume /export && echo ok"]
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data/data /data/media /data/consume /data/export
+              chown -R 1000:1000 /data
+              chmod -R u+rwX,g+rwX /data
           securityContext:
+            runAsUser: 0
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
           volumeMounts:
             - name: data
               mountPath: /data
-              subPath: data
-            - name: data
-              mountPath: /media
-              subPath: media
-            - name: data
-              mountPath: /consume
-              subPath: consume
-            - name: data
-              mountPath: /export
-              subPath: export
           resources:
             requests:
               cpu: 10m
@@ -78,6 +73,9 @@ spec:
             - name: ca-bundle
               mountPath: /ca-bundle
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             capabilities:
@@ -154,6 +152,9 @@ spec:
             - name: http
               containerPort: 8000
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
