@@ -5,7 +5,7 @@
 #   ./deploy.sh                 apply everything, then validate
 #   ./deploy.sh --dry-run       server-side validate without changing anything
 #   ./deploy.sh --validate      skip apply, just report current state
-#   ./deploy.sh jellyfin        apply (and validate) a single app
+#   ./deploy.sh immich          apply (and validate) a single app
 #
 # Credentials are never created here. Run scripts/secrets.sh first; this script
 # applies any committed SealedSecrets, waits for the controller to unseal them,
@@ -29,7 +29,7 @@ ONLY_APP=""
 # The app namespaces. Traefik also lives in kube-system, but it is k3s's own
 # bundled install rather than something this repo deploys, so it is never waited
 # on here. This repo now owns no kube-system workloads at all.
-NAMESPACES=(adguard identity monitoring media docs sync home infra caster immich)
+NAMESPACES=(adguard identity monitoring docs home infra caster immich)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -49,8 +49,6 @@ SECRET_SPECS=(
   "vaultwarden|identity|vaultwarden|admin-token?"
   "beszel|monitoring|beszel-agent|hub-public-key?"
   "paperless-ngx|docs|paperless-ngx|secret-key?,admin-user?,admin-password?"
-  "appflowy|docs|appflowy|postgres-password?,database-url?,jwt-secret?,gotrue-admin-password?,minio-access-key?,minio-secret-key?"
-  "syncthing|sync|syncthing|gui-apikey?"
   "registry|infra|registry-htpasswd|htpasswd?"
   "caster|caster|caster|postgres-password,secret-key-base"
   "immich|immich|immich|postgres-password"
@@ -63,8 +61,6 @@ consequence_for_app() {
     vaultwarden)   echo "vaultwarden pod stays in CreateContainerConfigError" ;;
     beszel)        echo "beszel-agent will not start; the hub generates this key on first run (docs/SECRETS.md)" ;;
     paperless-ngx) echo "paperless-ngx pod stays in CreateContainerConfigError" ;;
-    appflowy)      echo "all five appflowy pods stay in CreateContainerConfigError" ;;
-    syncthing)     echo "syncthing pod stays in CreateContainerConfigError" ;;
     registry)      echo "registry pod stays in CreateContainerConfigError; no image push or pull works" ;;
     immich)        echo "immich-postgres and immich-server both stay in CreateContainerConfigError" ;;
     *)             echo "the app may not start" ;;
