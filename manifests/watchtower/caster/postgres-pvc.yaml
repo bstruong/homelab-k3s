@@ -5,8 +5,8 @@
 # in postgres-statefulset.yaml generates the PVC, and this hand-written PV
 # pre-binds to that generated PVC through claimRef. The `appdata` StorageClass
 # has no provisioner, so without a matching PV the generated PVC would sit
-# Pending forever. This is exactly the arrangement appflowy-postgres uses — its
-# PV is in appflowy/pvc.yaml with a claimRef to data-appflowy-postgres-0 —
+# Pending forever. This is exactly the arrangement immich-postgres uses — its
+# PV is in immich/postgres-pvc.yaml with a claimRef to data-immich-postgres-0 —
 # rather than the standalone PV+PVC pair the registry uses, because the
 # registry is a Deployment and has no volumeClaimTemplate.
 #

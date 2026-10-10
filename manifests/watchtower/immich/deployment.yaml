@@ -19,7 +19,7 @@
 # restricted. The image declares no USER, upstream runs it as root, and it
 # needs to own files it writes under /data. Capabilities are still dropped
 # wholesale and privilege escalation is off, so this is root without any of
-# root's powers — the same posture the odysseus namespace documents.
+# root's powers.
 apiVersion: apps/v1
 kind: Deployment
 metadata:

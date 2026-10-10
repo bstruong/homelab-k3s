@@ -128,8 +128,7 @@ spec:
             # Credentials arrive by reference and are interpolated into the JSON
             # below via $(VAR). Kubernetes expands $(VAR) only against env vars
             # declared EARLIER in this list, so these two must stay above
-            # PAPERLESS_SOCIALACCOUNT_PROVIDERS. Same idiom as DATABASE_URL in
-            # appflowy/gotrue.yaml; it keeps the client secret out of this file.
+            # PAPERLESS_SOCIALACCOUNT_PROVIDERS; it keeps the client secret out of this file.
             - name: OIDC_CLIENT_ID
               valueFrom:
                 secretKeyRef:
