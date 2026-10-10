@@ -197,6 +197,5 @@ spec:
           persistentVolumeClaim:
             claimName: immich-library
         - name: external-legacy-photos
-          hostPath:
-            path: /mnt/appdata/staging/photos
-            type: Directory
+          persistentVolumeClaim:
+            claimName: immich-external-legacy-photos

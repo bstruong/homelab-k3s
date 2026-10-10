@@ -58,3 +58,48 @@ spec:
   resources:
     requests:
       storage: 200Gi
+---
+# Staged legacy photos mounted as a read-only external library.
+# Backed by a PersistentVolume to comply with Pod Security Admission (baseline),
+# which forbids raw hostPath volumes directly in Pod specs.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: immich-external-legacy-photos
+  labels:
+    app.kubernetes.io/name: immich
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: ["ReadOnlyMany"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/staging/photos
+    type: Directory
+  claimRef:
+    namespace: immich
+    name: immich-external-legacy-photos
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: immich-external-legacy-photos
+  namespace: immich
+  labels:
+    app.kubernetes.io/name: immich
+spec:
+  accessModes: ["ReadOnlyMany"]
+  storageClassName: appdata
+  volumeName: immich-external-legacy-photos
+  resources:
+    requests:
+      storage: 50Gi
+
