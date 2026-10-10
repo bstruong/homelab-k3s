@@ -147,19 +147,12 @@ The exceptions, each documented at the top of its manifest:
 | Home Assistant | root | s6-overlay has no supported non-root mode |
 | Homepage | mounts a token | its widgets read workload status; the ClusterRole is read-only and lists no secrets |
 
-**Host volume ownership.** `fsGroup` does not fix ownership on `hostPath`
-volumes — kubelet's recursive ownership pass skips them, so a directory created
-by `DirectoryOrCreate` stays `root:root` and every non-root app fails to write
-to it. The fix is the `chown` step that `deploy.sh` prints for the node; run it
-before the first deploy, and run *all* of it — the root-owned directories at the
-end are not optional.
-
-Note that "runs as root" does not mean "can write anywhere." Every container
-here drops `ALL` capabilities, so none has `CAP_DAC_OVERRIDE`, and a uid 0
-process without it gets no permission bypass: against a 1000-owned `0755`
-directory it can read and traverse but not create. AdGuard Home and Home
-Assistant both run as uid 0 and therefore need their data directories owned
-by `0:0`, not `1000:1000`.
+**Host volume ownership.** `fsGroup` does not automatically recurse through in-tree `hostPath`
+volumes. To eliminate brittle manual host `chown` steps, workloads feature self-healing
+`initContainers` (`busybox:1.37` running as root with minimal capabilities `CHOWN`, `FOWNER`, `DAC_OVERRIDE`)
+that automatically prepare directories, establish subpaths, and enforce exact UID/GID
+and mode permissions (`700` for databases) on pod initialization. Application runtimes remain
+unprivileged (`runAsNonRoot: true`, capabilities dropped).
 
 Uptime Kuma is the inverse case: it starts as root and drops to uid 1000 in its
 own entrypoint, so its directory stays `1000:1000` and it needs `CHOWN`,

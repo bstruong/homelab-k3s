@@ -135,42 +135,18 @@ preflight() {
   fi
 }
 
-# The host directories must exist and be writable by the uid each app runs as;
-# hostPath's DirectoryOrCreate makes them owned by root, which is not enough.
+# Workload manifests include self-healing initContainers (fix-permissions) that
+# automatically configure directory layouts and correct ownership (999, 1000, 0)
+# on container startup. For pre-provisioning on a raw disk, the layout is:
 check_appdata() {
   info "Checking ${APPDATA_ROOT} on ${NODE}"
-  warn "This script cannot inspect the node's filesystem from here."
-  warn "On a fresh install, run this on ${NODE} first:"
+  info "Workloads feature self-healing initContainers that manage permissions automatically."
+  info "If pre-seeding empty directories on ${NODE}:"
   cat <<EOF
 
-  sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,jellyfin}
-  sudo mkdir -p ${APPDATA_ROOT}/{paperless-ngx,beszel,uptime-kuma}
-  sudo mkdir -p ${APPDATA_ROOT}/{syncthing,home-assistant,media,registry}
-  sudo mkdir -p ${APPDATA_ROOT}/appflowy/{postgres,minio}
+  sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,paperless-ngx,beszel,ntfy,uptime-kuma,registry}
   sudo mkdir -p ${APPDATA_ROOT}/caster/postgres
   sudo mkdir -p ${APPDATA_ROOT}/immich/{postgres,library}
-
-  # Apps running as uid 1000. Each directory is named explicitly on purpose:
-  # a recursive chown of ${APPDATA_ROOT} itself would also rewrite k3s's
-  # relocated data directory, which lives under this root and must stay
-  # root-owned.
-  sudo chown -R 1000:1000 ${APPDATA_ROOT}/{vaultwarden,pocket-id,jellyfin,media}
-  sudo chown -R 1000:1000 ${APPDATA_ROOT}/{paperless-ngx,beszel,uptime-kuma,syncthing}
-  sudo chown -R 1000:1000 ${APPDATA_ROOT}/registry                  # registry runs as uid 1000
-  sudo chown -R 1000:1000 ${APPDATA_ROOT}/appflowy/minio
-  sudo chown -R 999:999   ${APPDATA_ROOT}/appflowy/postgres  # postgres runs as uid 999
-  sudo chown -R 999:999   ${APPDATA_ROOT}/caster/postgres    # postgres runs as uid 999
-  sudo chown -R 999:999   ${APPDATA_ROOT}/immich/postgres    # postgres runs as uid 999
-
-  # Apps whose container runs as uid 0. These MUST be root-owned. Every
-  # container here drops ALL capabilities, so none of them holds
-  # CAP_DAC_OVERRIDE — and without it uid 0 gets no permission bypass at all.
-  # Against a 1000-owned 0755 directory, "other" has only r-x, so a root
-  # process cannot create anything inside it. Getting this wrong looks like
-  # a bare "permission denied" from an app you believe is running as root.
-  sudo chown -R 0:0       ${APPDATA_ROOT}/adguard-home       # its first-launch check is a bare uid==0 test
-  sudo chown -R 0:0       ${APPDATA_ROOT}/home-assistant     # s6-overlay needs root
-  sudo chown -R 0:0       ${APPDATA_ROOT}/immich/library     # immich-server runs as uid 0
 
 EOF
 }
