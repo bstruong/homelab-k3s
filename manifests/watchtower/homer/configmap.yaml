@@ -124,10 +124,6 @@ data:
             subtitle: "Photo and video backup"
             icon: "fas fa-images"
             url: "https://immich.watchtower.local"
-          - name: "Caster"
-            subtitle: "MLS market intelligence pipeline"
-            icon: "fas fa-chart-line"
-            url: "https://caster.watchtower.local/up"
 
       - name: "Practice & Katas"
         icon: "fas fa-dumbbell"
