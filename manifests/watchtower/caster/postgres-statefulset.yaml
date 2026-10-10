@@ -1,14 +1,9 @@
 ---
 # CASTER's Postgres. Single-tenant: this instance exists only for CASTER, and
-# nothing else connects to it. That is a deliberate reversal of the earlier
-# "shared instance" plan — there is no shared Postgres on this cluster. The one
-# other Postgres here (appflowy-postgres in `docs`) is AppFlowy's own backing
-# store, named and configured for AppFlowy's needs, so pointing a second app at
-# it would couple CASTER's uptime to AppFlowy's namespace and lifecycle.
+# nothing else connects to it. There is no shared Postgres on this cluster.
 #
-# Stock postgres:16 rather than the pgvector image AppFlowy uses — CASTER needs
-# no vector or uuid-ossp extensions, only plain SQL plus PERCENTILE_CONT, which
-# is core Postgres.
+# Stock postgres:16 — CASTER needs no vector or uuid-ossp extensions, only plain
+# SQL plus PERCENTILE_CONT, which is core Postgres.
 #
 # THREE databases are required, because config/database.yml declares three
 # connections in production: primary (caster_production), cache
@@ -129,8 +124,6 @@ spec:
           # database "caster" does not exist` every 10s forever. The probe
           # still passes (pg_isready returns 0 because the server answered),
           # so this is silent log noise rather than a health fault.
-          # AppFlowy's equivalent gets away with `-U postgres` alone only
-          # because its POSTGRES_USER and POSTGRES_DB are both `postgres`.
           livenessProbe:
             exec:
               command: ["pg_isready", "-U", "caster", "-d", "caster_production"]

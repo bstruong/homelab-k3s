@@ -32,23 +32,7 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: media
-  labels:
-    homelab.watchtower/stack: watchtower
-    pod-security.kubernetes.io/enforce: baseline
----
-apiVersion: v1
-kind: Namespace
-metadata:
   name: docs
-  labels:
-    homelab.watchtower/stack: watchtower
-    pod-security.kubernetes.io/enforce: baseline
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: sync
   labels:
     homelab.watchtower/stack: watchtower
     pod-security.kubernetes.io/enforce: baseline
@@ -59,17 +43,6 @@ metadata:
   name: home
   labels:
     homelab.watchtower/stack: watchtower
-    pod-security.kubernetes.io/enforce: baseline
----
-apiVersion: v1
-kind: Namespace
-metadata:
-  name: odysseus
-  labels:
-    homelab.watchtower/stack: watchtower
-    # baseline, not restricted: the Odysseus app container starts as
-    # root and drops to PUID/PGID via gosu, which restricted forbids.
-    # ChromaDB and SearXNG are both restricted-compliant regardless.
     pod-security.kubernetes.io/enforce: baseline
 ---
 apiVersion: v1
@@ -106,11 +79,6 @@ metadata:
     # baseline, not restricted: the immich-server image declares no USER and
     # upstream runs it as root, which restricted forbids. It still drops ALL
     # capabilities and disables privilege escalation, so it is root without
-    # root's powers. Same reasoning as `odysseus`. Its Postgres (uid 999) and
-    # Redis (uid 1000) are both restricted-compliant regardless.
-    #
-    # Immich's own namespace rather than joining `media` with Jellyfin: it
-    # brings a full stateful tier of its own (Postgres + Redis), which is the
-    # same reason `caster` is separate, and `media` is baseline for Jellyfin's
-    # reasons rather than these.
+    # root's powers. Its Postgres (uid 999) and Redis (uid 1000) are both
+    # restricted-compliant regardless.
     pod-security.kubernetes.io/enforce: baseline

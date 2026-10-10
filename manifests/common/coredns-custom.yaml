@@ -26,7 +26,7 @@
 # whole internet resolved to Traefik from inside every pod — which then served
 # its self-signed `CN=TRAEFIK DEFAULT CERT`, breaking TLS cluster-wide.
 #
-# Every real service name under this zone is single-label (jellyfin, vault,
+# Every real service name under this zone is single-label (immich, vault,
 # registry, ...); every leaked name is multi-label by construction, because it
 # is an external FQDN with the search domain appended. So NXDOMAIN on 2+ labels
 # closes the leak exactly, and the resolver then continues down the search list
