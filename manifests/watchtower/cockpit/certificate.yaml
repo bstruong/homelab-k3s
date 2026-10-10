@@ -1,0 +1,25 @@
+---
+# TLS certificate for Fedora Server Cockpit admin portal.
+#
+# Issued by cert-manager via watchtower-ca-issuer, chaining to Watchtower Homelab Root CA.
+# Covers watchtower.local, cockpit.watchtower.local, short hostname watchtower, and host IP 192.168.1.92.
+# Synchronized to /etc/cockpit/ws-certs.d/50-watchtower.cert so Cockpit serves a trusted certificate
+# recognized automatically by any device trusting the homelab Root CA without browser security warnings.
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: cockpit-tls
+  namespace: infra
+spec:
+  secretName: cockpit-tls
+  duration: 2160h    # 90d
+  renewBefore: 360h  # 15d
+  dnsNames:
+    - watchtower.local
+    - cockpit.watchtower.local
+    - watchtower
+  ipAddresses:
+    - 192.168.1.92
+  issuerRef:
+    name: watchtower-ca-issuer
+    kind: ClusterIssuer
