@@ -70,8 +70,9 @@ protection is that no workflow here ever writes a plaintext credential to disk.
 | Vaultwarden | `identity` | `vaultwarden` | `admin-token` | no |
 | Beszel | `monitoring` | `beszel-agent` | `hub-public-key` | no |
 | Paperless-ngx | `docs` | `paperless-ngx` | `secret-key`, `admin-user`, `admin-password` | no |
-| AppFlowy | `docs` | `appflowy` | `postgres-password`, `database-url`, `jwt-secret`, `gotrue-admin-password`, `minio-access-key`, `minio-secret-key` | no |
-| Syncthing | `sync` | `syncthing` | `gui-apikey` | no |
+| Registry | `infra` | `registry-htpasswd` | `htpasswd` | no |
+| Caster | `caster` | `caster` | `postgres-password`, `secret-key-base` | yes |
+| Immich | `immich` | `immich` | `postgres-password` | yes |
 
 ### Required vs optional
 
@@ -100,11 +101,6 @@ Notes on the ones with sharp edges:
 
 * **`traefik-dashboard-auth/users`** is an htpasswd line, not a password. Only
   the bcrypt hash is stored; the password is shown once by `--show`.
-* **`appflowy/postgres-password` and `database-url`** are two views of one
-  credential. Rotate them in the same command or GoTrue and appflowy-cloud will
-  disagree with Postgres.
-* **`appflowy/jwt-secret`** is shared by GoTrue and appflowy-cloud. If they
-  ever differ, every request 401s.
 * **`beszel-agent/hub-public-key`** cannot be generated ahead of time — see
   below.
 
@@ -133,21 +129,6 @@ assume 3000. The password is bcrypt-hashed into
 `/mnt/appdata/adguard-home/conf/AdGuardHome.yaml`. To reset it, edit the
 `users:` block on the node and restart the deployment.
 
-**Jellyfin** — first-run wizard creates the admin. While you are there, finish
-the Direct Play setup, which the ConfigMap only half covers. Under
-**Dashboard → Users → \<user\> → Playback**, clear for *every* user:
-
-* Allow audio playback that requires transcoding
-* Allow video playback that requires transcoding
-* Allow video playback that requires re-muxing
-
-These are per-user policies in Jellyfin's database. With them cleared, an
-unsupported file fails to play instead of silently pulling the node into a
-software transcode.
-
-**Home Assistant** — <https://home.watchtower.local> onboarding creates the
-owner account. Everything after that lives in `.storage/` on the PVC, which is
-sensitive: it holds long-lived tokens and every integration's credentials.
 
 **Pocket ID** — passkey-only, so there is no admin password. The first-run
 setup link is printed in the pod log:

@@ -1,6 +1,6 @@
 ---
 # The PersistentVolume backing the StatefulSet's volumeClaimTemplate, the same
-# PV-plus-claimRef arrangement caster-postgres and appflowy-postgres use: the
+# PV-plus-claimRef arrangement caster-postgres uses: the
 # volumeClaimTemplate in postgres-statefulset.yaml generates the PVC, and this
 # hand-written PV pre-binds to it. The `appdata` StorageClass has no
 # provisioner, so without a matching PV the generated PVC sits Pending forever.
@@ -8,7 +8,7 @@
 # There is deliberately no PersistentVolumeClaim object here — writing one
 # would collide with the PVC the StatefulSet generates.
 #
-# 20Gi matches the other two Postgres instances. Immich's own docs put a
+# 20Gi matches caster-postgres. Immich's own docs put a
 # typical database at 1-3GB; the photo and video files themselves live on the
 # separate, much larger library volume in pvc.yaml, not in Postgres.
 apiVersion: v1

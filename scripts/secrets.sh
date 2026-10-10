@@ -26,7 +26,7 @@ MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
 
-ALL_APPS="traefik vaultwarden beszel paperless-ngx appflowy syncthing registry caster immich"
+ALL_APPS="traefik vaultwarden beszel paperless-ngx registry caster immich"
 
 MODE=""
 SHOW=false
@@ -107,8 +107,7 @@ app_namespace() {
     traefik)           echo kube-system ;;
     vaultwarden)       echo identity ;;
     beszel)            echo monitoring ;;
-    paperless-ngx|appflowy) echo docs ;;
-    syncthing)         echo sync ;;
+    paperless-ngx)     echo docs ;;
     registry)          echo infra ;;
     caster)            echo caster ;;
     immich)            echo immich ;;
@@ -199,29 +198,7 @@ app_literals() {
       printf 'literal:admin-password=%s\n' "${admin_pw}"
       ;;
 
-    appflowy)
-      local pg jwt gotrue_pw minio_ak minio_sk
-      pg="$(gen 32)"; jwt="$(gen 64)"; gotrue_pw="$(gen 24)"
-      minio_ak="$(gen 20)"; minio_sk="$(gen 40)"
-      printf 'summary:AppFlowy postgres      postgres / %s\n' "${pg}"
-      printf 'summary:AppFlowy admin         admin@watchtower.local / %s\n' "${gotrue_pw}"
-      printf 'summary:AppFlowy minio         %s / %s\n' "${minio_ak}" "${minio_sk}"
-      printf 'literal:postgres-password=%s\n' "${pg}"
-      # Derived from postgres-password and stored alongside it, so the two can
-      # never drift apart during a rotation.
-      printf 'literal:database-url=postgres://postgres:%s@appflowy-postgres:5432/postgres\n' "${pg}"
-      printf 'literal:jwt-secret=%s\n' "${jwt}"
-      printf 'literal:gotrue-admin-password=%s\n' "${gotrue_pw}"
-      printf 'literal:minio-access-key=%s\n' "${minio_ak}"
-      printf 'literal:minio-secret-key=%s\n' "${minio_sk}"
-      ;;
 
-    syncthing)
-      local apikey
-      apikey="$(gen 32)"
-      printf 'summary:Syncthing API key      %s\n' "${apikey}"
-      printf 'literal:gui-apikey=%s\n' "${apikey}"
-      ;;
 
     registry)
       # The registry re-reads this htpasswd file on every request, and
@@ -271,7 +248,7 @@ app_literals() {
       #
       # 64 characters, matching the house length used for every other
       # secret-key-shaped value in this file (paperless-ngx secret-key,
-      # vaultwarden admin-token, appflowy jwt-secret). Note gen() emits
+      # vaultwarden admin-token). Note gen() emits
       # [A-Za-z0-9], NOT hex, so this is ~381 bits -- shorter than the 128 hex
       # chars (512 bits) Rails generates by default, and far beyond any
       # practical attack either way.
@@ -462,10 +439,6 @@ vaultwarden     identity     vaultwarden              admin-token
 beszel          monitoring   beszel-agent             hub-public-key
 paperless-ngx   docs         paperless-ngx            secret-key, admin-user,
                                                       admin-password
-appflowy        docs         appflowy                 postgres-password, database-url,
-                                                      jwt-secret, gotrue-admin-password,
-                                                      minio-access-key, minio-secret-key
-syncthing       sync         syncthing                gui-apikey
 registry        infra        registry-htpasswd        htpasswd
 caster          caster       caster                   postgres-password,
                                                       secret-key-base
@@ -474,8 +447,8 @@ immich          immich       immich                   postgres-password
 Credentials that are NOT Kubernetes Secrets, because the app owns its own
 credential store and sets it up through a first-run wizard:
 
-  AdGuard Home admin, Jellyfin admin, Home Assistant owner, Pocket ID admin,
-  Uptime Kuma admin, and every Vaultwarden user's master password.
+  AdGuard Home admin, Pocket ID admin, Uptime Kuma admin,
+  and every Vaultwarden user's master password.
 
 See docs/SECRETS.md for the order those need to happen in.
 EOF
