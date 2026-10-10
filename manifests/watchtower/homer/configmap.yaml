@@ -73,7 +73,7 @@ data:
           - name: "Cockpit"
             subtitle: "Fedora Server admin portal"
             icon: "fas fa-server"
-            url: "https://192.168.1.92:9090"
+            url: "https://watchtower.local:9090"
             target: "_blank"
           - name: "AdGuard Home"
             subtitle: "DNS and ad blocking"
