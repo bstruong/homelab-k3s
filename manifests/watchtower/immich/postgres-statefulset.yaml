@@ -46,16 +46,40 @@ spec:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
       securityContext:
-        runAsNonRoot: true
-        # uid/gid of the postgres user inside the image, same as
-        # caster-postgres and appflowy-postgres. /mnt/appdata/immich/postgres
-        # must be chown 999:999 on the node — hostPath's DirectoryOrCreate
-        # makes it root-owned, which this uid cannot write to.
-        runAsUser: 999
-        runAsGroup: 999
         fsGroup: 999
+        fsGroupChangePolicy: "OnRootMismatch"
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Self-healing volume permissions: DirectoryOrCreate and backup restores
+        # may leave the host volume owned by root or an unprivileged user (e.g. 1000).
+        # Postgres demands ownership by 999:999 and strict mode 0700.
+        - name: fix-permissions
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /var/lib/postgresql/data/pgdata
+              chown -R 999:999 /var/lib/postgresql/data
+              chmod 700 /var/lib/postgresql/data
+              chmod 700 /var/lib/postgresql/data/pgdata
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: postgres
           # Pinned by digest, matching caster-postgres. The tag alone is
@@ -99,6 +123,9 @@ spec:
             - name: postgres
               containerPort: 5432
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            runAsGroup: 999
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]

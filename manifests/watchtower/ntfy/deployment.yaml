@@ -56,12 +56,39 @@ spec:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
       securityContext:
-        runAsUser: 1000
-        runAsGroup: 1000
-        runAsNonRoot: true
         fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
         seccompProfile:
           type: RuntimeDefault
+      initContainers:
+        # Self-healing volume permissions: DirectoryOrCreate creates /var/lib/ntfy
+        # as root:root 0755. This init container runs as root, creates attachments/
+        # and chowns the volume to 1000:1000 so the unprivileged container can write.
+        - name: fix-permissions
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /var/lib/ntfy/attachments
+              chown -R 1000:1000 /var/lib/ntfy
+              chmod 700 /var/lib/ntfy
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/ntfy
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
       containers:
         - name: ntfy
           image: binwiederhier/ntfy:v2.11.0
@@ -93,6 +120,9 @@ spec:
             - name: http
               containerPort: 8080
           securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
