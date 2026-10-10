@@ -25,28 +25,28 @@ echo "Timestamp: $(date -Iseconds)"
 # --- 1. Database Logical Dumps ---
 echo "[1/4] Performing database backups..."
 
-# Caster PostgreSQL
+# Caster PostgreSQL (Superuser renamed to 'caster')
 if kubectl -n caster get pod caster-postgres-0 &>/dev/null; then
   echo "  Dumping Caster PostgreSQL..."
-  kubectl -n caster exec caster-postgres-0 -- pg_dumpall -U postgres | gzip > "$BACKUP_TEMP/caster-postgres.sql.gz" || true
+  kubectl -n caster exec caster-postgres-0 -- pg_dumpall -U caster | gzip > "$BACKUP_TEMP/caster-postgres.sql.gz" || true
 fi
 
-# Immich PostgreSQL
+# Immich PostgreSQL (Superuser renamed to 'immich')
 if kubectl -n immich get pod immich-postgres-0 &>/dev/null; then
   echo "  Dumping Immich PostgreSQL..."
-  kubectl -n immich exec immich-postgres-0 -- pg_dumpall -U postgres | gzip > "$BACKUP_TEMP/immich-postgres.sql.gz" || true
+  kubectl -n immich exec immich-postgres-0 -- pg_dumpall -U immich | gzip > "$BACKUP_TEMP/immich-postgres.sql.gz" || true
 fi
 
-# Vaultwarden SQLite backup (hot-safe)
+# Vaultwarden SQLite backup (hot-safe via Python stdlib)
 if [[ -f "/mnt/appdata/vaultwarden/db.sqlite3" ]]; then
   echo "  Backing up Vaultwarden SQLite..."
-  sqlite3 /mnt/appdata/vaultwarden/db.sqlite3 ".backup '$BACKUP_TEMP/vaultwarden-backup.sqlite3'" || true
+  python3 -c "import sqlite3; conn = sqlite3.connect('/mnt/appdata/vaultwarden/db.sqlite3'); bck = sqlite3.connect('$BACKUP_TEMP/vaultwarden-backup.sqlite3'); conn.backup(bck); bck.close(); conn.close()" || true
 fi
 
-# Uptime Kuma SQLite backup
+# Uptime Kuma SQLite backup (hot-safe via Python stdlib)
 if [[ -f "/mnt/appdata/uptime-kuma/kuma.db" ]]; then
   echo "  Backing up Uptime Kuma SQLite..."
-  sqlite3 /mnt/appdata/uptime-kuma/kuma.db ".backup '$BACKUP_TEMP/uptime-kuma-backup.sqlite3'" || true
+  python3 -c "import sqlite3; conn = sqlite3.connect('/mnt/appdata/uptime-kuma/kuma.db'); bck = sqlite3.connect('$BACKUP_TEMP/uptime-kuma-backup.sqlite3'); conn.backup(bck); bck.close(); conn.close()" || true
 fi
 
 # --- 2. Master Decryption Keys & Kubeconfig ---
@@ -60,8 +60,16 @@ rsync -aHAX --numeric-ids --delete \
   --exclude="k3s-data" \
   --exclude="lost+found" \
   --exclude="staging" \
+  --exclude="appflowy" \
+  --exclude="crowdsec" \
+  --exclude="home-assistant" \
+  --exclude="jellyfin" \
+  --exclude="odysseus" \
+  --exclude="pairdrop" \
+  --exclude="syncthing" \
+  --exclude="*/postgres/pgdata" \
   /mnt/appdata/ \
-  "brian@${DEST_HOST}:${DEST_PATH}/appdata/"
+  "brian@${DEST_HOST}:${DEST_PATH}/appdata/" || true
 
 # Mirror cluster recovery secrets
 rsync -av "$BACKUP_TEMP/" "brian@${DEST_HOST}:${DEST_PATH}/"
