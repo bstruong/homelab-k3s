@@ -82,3 +82,13 @@ metadata:
     # root's powers. Its Postgres (uid 999) and Redis (uid 1000) are both
     # restricted-compliant regardless.
     pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dojo
+  labels:
+    homelab.watchtower/stack: watchtower
+    pod-security.kubernetes.io/enforce: baseline
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
