@@ -237,6 +237,41 @@ SSH_AUTH_SOCK="$(ls -t ${HOME}/.ssh/agent/* | head -1)" ssh watchtower "
 
 ---
 
+### 3.4 Host Hardware Quirks & Kernel Tuning (Ryzen AM5 Host)
+
+Before deploying cluster workloads, apply these hardware quirks and kernel optimizations identified during the pre-migration audit:
+
+1. **USB xHCI Controller Sleep Loop Quirk:**
+   On this AM5 motherboard/chipset, the xHCI USB controller causes instant wake loops if sleep states (S3/s2idle) are ever entered:
+   ```bash
+   sudo tee /etc/udev/rules.d/90-xhci-sleep-fix.rules <<'EOF'
+   ACTION=="add", SUBSYSTEM=="pci", DRIVERS=="xhci_hcd", ATTR{power/wakeup}="disabled"
+   EOF
+   sudo udevadm control --reload-rules
+   ```
+
+2. **Inotify Resource Expansion:**
+   Default Fedora limits (65,536) easily trigger `ENOSPC` errors under multi-container k3s stacks and log aggregators:
+   ```bash
+   sudo tee /etc/sysctl.d/99-inotify.conf <<'EOF'
+   fs.inotify.max_user_watches=524288
+   EOF
+   sudo sysctl --system
+   ```
+
+3. **Kernel Boot Parameters (GRUB/BLS):**
+   Disable hardware watchdog timer overhead:
+   ```bash
+   sudo grubby --update-kernel=ALL --args="nowatchdog"
+   ```
+
+4. **Storage Chassis Changes (Archive & Games Drives Migrated):**
+   * The Seagate 1TB HDD (`/mnt/Archive`) and Samsung 2TB SSD (`/mnt/Games`) previously in this chassis were physically unmounted and moved to a secondary machine.
+   * Neither drive will be mounted on Watchtower. All migration bundles and off-host backups are preserved on the secondary machine holding `/mnt/Archive/watchtower-backup/`.
+   * *Filesystem Notice for Destination Host:* The Samsung 2TB SSD was formatted as a whole-disk ext4 filesystem (no partition table) with UUID `1253eba6-80ed-42a0-bd0d-d4d1f51e3ed5`. Mount by UUID rather than assuming a partition like `sdX1`.
+
+---
+
 ## 4. Post-Migration Bootstrap Checklist
 
 ### Step 1: Workstation SSH Re-Authentication
