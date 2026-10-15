@@ -1,0 +1,61 @@
+apiVersion: helm.cattle.io/v1
+kind: HelmChart
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  chart: traefik
+  version: "27.0.2"
+  repo: https://traefik.github.io/charts
+  targetNamespace: kube-system
+  valuesContent: |-
+    deployment:
+      replicas: 1
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: "1"
+        memory: 512Mi
+    service:
+      spec:
+        externalTrafficPolicy: Local
+    ports:
+      web:
+        port: 8000
+        exposedPort: 80
+        hostPort: 80
+      websecure:
+        port: 8443
+        exposedPort: 443
+        hostPort: 443
+        tls:
+          enabled: true
+    ingressRoute:
+      dashboard:
+        enabled: false
+    providers:
+      kubernetesCRD:
+        enabled: true
+        allowCrossNamespace: false
+        allowExternalNameServices: false
+      kubernetesIngress:
+        enabled: true
+    logs:
+      general:
+        level: INFO
+      access:
+        enabled: true
+        format: json
+    globalArguments:
+      - "--global.checknewversion=false"
+      - "--global.sendanonymoususage=false"
+    securityContext:
+      runAsNonRoot: true
+      runAsUser: 65532
+      runAsGroup: 65532
+      readOnlyRootFilesystem: true
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: ["ALL"]
