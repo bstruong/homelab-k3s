@@ -1,0 +1,113 @@
+---
+# Pocket ID is a passkey-only OIDC provider. There is no admin password to
+# provision — the first admin is created through a one-time setup link printed
+# in the pod log on first start. See docs/SECRETS.md.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pocket-id
+  namespace: identity
+  labels:
+    app.kubernetes.io/name: pocket-id
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pocket-id
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pocket-id
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        # Self-healing volume permissions: DirectoryOrCreate and backup restores
+        # may leave the host volume owned by root or another UID. Pocket ID
+        # requires /app/data to be writable by uid 1000.
+        - name: fix-permissions
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /app/data
+              chown -R 1000:1000 /app/data
+              chmod 700 /app/data
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: pocket-id
+          image: ghcr.io/pocket-id/pocket-id:v1.6.4
+          env:
+            # Passkeys are bound to this origin. Changing it later invalidates
+            # every registered credential, so get it right the first time.
+            - name: APP_URL
+              value: https://id.watchtower.local
+            - name: TRUST_PROXY
+              value: "true"
+            - name: PORT
+              value: "1411"
+          ports:
+            - name: http
+              containerPort: 1411
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: pocket-id-data
+        - name: tmp
+          emptyDir: {}
