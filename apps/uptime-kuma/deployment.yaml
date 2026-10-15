@@ -1,0 +1,126 @@
+---
+# This image is built to start as root and drop privileges itself. From
+# extra/entrypoint.sh (tag 1.23.16):
+#
+#   PUID=${PUID=0}
+#   PGID=${PGID=0}
+#   files_ownership () { chown -hRc "$PUID":"$PGID" /app/data; }
+#   files_ownership
+#   exec setpriv --reuid "$PUID" --regid "$PGID" --clear-groups "$@"
+#
+# Two things follow from that, and both broke the previous configuration:
+#
+#  1. PUID/PGID default to 0, not to whoever the container runs as. Forcing
+#     runAsUser: 1000 meant an unprivileged process ran `chown 0:0 /app/data`.
+#     Linux only permits a chown that leaves the owner unchanged, and only for
+#     the file's owner, so this returned EPERM no matter who owned the
+#     directory — which is why pre-chowning the volume to 1000:1000 in an init
+#     container did not help. Setting PUID/PGID to 1000 makes the chown target
+#     match the eventual owner.
+#  2. `setpriv --reuid/--regid --clear-groups` needs CAP_SETUID/CAP_SETGID
+#     (setgroups(2) alone requires CAP_SETGID). A container pinned to uid 1000
+#     cannot do it, so the step-down would have failed even if the chown had
+#     succeeded.
+#
+# So the container starts as root, and the entrypoint hands off to uid 1000.
+# The application process is still unprivileged — the capabilities below are
+# dropped by the kernel at the setpriv step. The release stage of the upstream
+# Dockerfile has no USER directive, confirming root is the intended start
+# state; the `USER node` line in that file belongs to the pr-test stage.
+#
+# The init container that used to chown this volume is gone: the entrypoint
+# does that job itself, correctly, as root.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: uptime-kuma
+  namespace: monitoring
+  labels:
+    app.kubernetes.io/name: uptime-kuma
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: uptime-kuma
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: uptime-kuma
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      # No runAsUser/runAsNonRoot here on purpose — see the note above. No
+      # fsGroup either: it does nothing for hostPath volumes, and the
+      # entrypoint's --clear-groups would discard the supplementary group
+      # regardless.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: uptime-kuma
+          image: louislam/uptime-kuma:1.23.16
+          env:
+            # Own the data directory as, and run the app as, uid/gid 1000 —
+            # matching the ownership deploy.sh asks you to set on
+            # /mnt/appdata. Without these the entrypoint would chown to 0:0
+            # and run the application as root.
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            - name: UPTIME_KUMA_PORT
+              value: "3001"
+            - name: NODE_ENV
+              value: production
+            # Injected ntfy access token for watchtower-alerts notifications
+            - name: NTFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: uptime-kuma-ntfy
+                  key: token
+          ports:
+            - name: http
+              containerPort: 3001
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add:
+                # chown /app/data during startup.
+                - CHOWN
+                # setpriv's step-down to uid/gid 1000, including setgroups().
+                - SETUID
+                - SETGID
+                # ICMP ping monitors. Kept in the bounding set so that
+                # /bin/ping's file capability still applies after the
+                # step-down; remove it if you only use HTTP/TCP/DNS monitors.
+                - NET_RAW
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 60
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: uptime-kuma-data

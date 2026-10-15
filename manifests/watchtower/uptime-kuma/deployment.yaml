@@ -75,6 +75,12 @@ spec:
               value: "3001"
             - name: NODE_ENV
               value: production
+            # Injected ntfy access token for watchtower-alerts notifications
+            - name: NTFY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: uptime-kuma-ntfy
+                  key: token
           ports:
             - name: http
               containerPort: 3001
