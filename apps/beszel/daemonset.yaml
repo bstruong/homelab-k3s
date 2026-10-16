@@ -24,6 +24,7 @@ spec:
       labels:
         app.kubernetes.io/name: beszel-agent
     spec:
+      runtimeClassName: nvidia
       nodeSelector:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
@@ -31,14 +32,11 @@ spec:
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
       securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
-        runAsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: beszel-agent
-          image: henrygd/beszel-agent:0.9.1
+          image: henrygd/beszel-agent-nvidia:0.9.1
           env:
             - name: PORT
               value: "45876"
@@ -56,15 +54,16 @@ spec:
                 secretKeyRef:
                   name: beszel-agent
                   key: hub-public-key
+            - name: NVIDIA_VISIBLE_DEVICES
+              value: "all"
+            - name: NVIDIA_DRIVER_CAPABILITIES
+              value: "utility,compute"
           ports:
             - name: agent
               containerPort: 45876
               hostPort: 45876
           securityContext:
-            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
-            capabilities:
-              drop: ["ALL"]
           volumeMounts:
             - name: host-proc
               mountPath: /host/proc

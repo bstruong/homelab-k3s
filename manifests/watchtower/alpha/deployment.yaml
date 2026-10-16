@@ -71,10 +71,10 @@ spec:
           resources:
             limits:
               nvidia.com/gpu: 1
-              memory: 30Gi
+              memory: 24Gi
             requests:
               nvidia.com/gpu: 1
-              memory: 22Gi
+              memory: 18Gi
           readinessProbe:
             httpGet:
               path: /health
