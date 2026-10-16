@@ -11,7 +11,7 @@
 
 ### 1.1 Hardware Transition Overview
 * **Retiring Server (Current Watchtower):** Intel Core i7-4790K (Haswell, 4c/8t), 32GB DDR3 RAM, Samsung 860 EVO SATA SSD (`/mnt/appdata`).
-* **Target Server (New Watchtower):** AMD Ryzen 7 9700X (Zen 5, 8c/16t), 64GB DDR5 RAM, Samsung 990 Pro NVMe SSD (OS / root) + Samsung 860 EVO SATA SSD (`/mnt/appdata`).
+* **Target Server (New Watchtower):** AMD Ryzen 7 9700X (Zen 5, 8c/16t), 32GB DDR5 RAM, Samsung 990 Pro NVMe SSD (OS / root) + Samsung 860 EVO SATA SSD (`/mnt/appdata`).
 * **Retained Workload Scope (Strictly 10 Applications + Dojos):**
   1. `adguard-home` (`dns.watchtower.local`)
   2. `beszel` (`beszel.watchtower.local`)
@@ -450,14 +450,18 @@ On Linux, Brave/Chromium relies on both the user NSS database (`~/.pki/nssdb`) a
 
 ##### B. Firefox (Linux)
 1. Verify or import the Root CA into the default Firefox profile NSS database:
+   *(Note: On CachyOS/Arch, profiles are located in `~/.config/mozilla/firefox/` rather than `~/.mozilla/firefox/`)*:
    ```bash
    # Check existing trust:
-   certutil -L -d sql:/home/brian/.mozilla/firefox/*.default-release | grep "Watchtower Homelab Root CA"
+   certutil -L -d sql:/home/brian/.config/mozilla/firefox/*.default-release | grep "Watchtower Homelab Root CA"
 
    # Import if missing:
-   certutil -A -n "Watchtower Homelab Root CA" -t "CT,," \
+   certutil -A -n "Watchtower Homelab Root CA" -t "C,," \
      -i /home/brian/watchtower-ca.crt \
-     -d sql:/home/brian/.mozilla/firefox/*.default-release
+     -d sql:/home/brian/.config/mozilla/firefox/*.default-release
+
+   # Enable Enterprise Roots in user.js:
+   echo 'user_pref("security.enterprise_roots.enabled", true);' >> ~/.config/mozilla/firefox/*.default-release/user.js
    ```
 2. Restart Firefox.
 
@@ -505,7 +509,7 @@ Once post-migration bootstrap is complete, verify each service against this chec
 [ ] https://interview-dojo.watchtower.local - Interview Dojo prep live
 [ ] MacBook Air Firefox/Zen              - Green lock on *.watchtower.local (no cert warnings)
 [ ] MacBook Air Brave                    - Green lock on *.watchtower.local (no cert warnings)
-[ ] Metrotower Firefox                   - Green lock on *.watchtower.local (no cert warnings)
+[x] Metrotower Firefox                   - Green lock on *.watchtower.local (no cert warnings)
 [ ] Metrotower Brave                     - Green lock on *.watchtower.local (no cert warnings)
 ```
 
