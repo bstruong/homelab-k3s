@@ -1,0 +1,42 @@
+---
+# The PersistentVolume mapping the host NVMe models partition directly into k3s.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: alpha-models
+  labels:
+    app.kubernetes.io/name: alpha-models
+spec:
+  capacity:
+    storage: 400Gi
+  accessModes: ["ReadOnlyMany"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/models
+    type: Directory
+  claimRef:
+    namespace: alpha
+    name: alpha-models
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alpha-models
+  namespace: alpha
+  labels:
+    app.kubernetes.io/name: alpha-models
+spec:
+  accessModes: ["ReadOnlyMany"]
+  storageClassName: appdata
+  volumeName: alpha-models
+  resources:
+    requests:
+      storage: 400Gi
