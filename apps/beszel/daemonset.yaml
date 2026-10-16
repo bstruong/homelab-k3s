@@ -24,6 +24,7 @@ spec:
       labels:
         app.kubernetes.io/name: beszel-agent
     spec:
+      enableServiceLinks: false
       runtimeClassName: nvidia
       nodeSelector:
         kubernetes.io/hostname: watchtower
@@ -36,7 +37,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: beszel-agent
-          image: henrygd/beszel-agent-nvidia:0.9.1
+          image: henrygd/beszel-agent-nvidia:0.21.0
           env:
             - name: PORT
               value: "45876"
