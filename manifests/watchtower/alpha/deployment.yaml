@@ -1,0 +1,103 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: alpha-llama
+  namespace: alpha
+  labels:
+    app.kubernetes.io/name: alpha-llama
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: alpha-llama
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: alpha-llama
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp:server-cuda
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--model"
+            - "/models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+            - "--alias"
+            - "qwen36-coder-hybrid,qwen36-coder"
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8080"
+            - "--ctx-size"
+            - "262144"
+            - "--n-gpu-layers"
+            - "all"
+            - "--n-cpu-moe"
+            - "32"
+            - "--threads"
+            - "7"
+            - "--threads-batch"
+            - "7"
+            - "--parallel"
+            - "2"
+            - "--batch-size"
+            - "2048"
+            - "--ubatch-size"
+            - "2048"
+            - "--flash-attn"
+            - "on"
+            - "--load-mode"
+            - "mlock"
+            - "--cache-type-k"
+            - "q8_0"
+            - "--cache-type-v"
+            - "q8_0"
+            - "--jinja"
+            - "--metrics"
+            - "--slots"
+          ports:
+            - name: http
+              containerPort: 8080
+              hostPort: 8080
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          resources:
+            limits:
+              nvidia.com/gpu: 1
+              memory: 24Gi
+            requests:
+              nvidia.com/gpu: 1
+              memory: 18Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 45
+            periodSeconds: 15
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: alpha-models
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
