@@ -1,0 +1,184 @@
+diff --git a/internal/site/src/components/routes/system.tsx b/internal/site/src/components/routes/system.tsx
+index 8c95967..de9fb71 100644
+--- a/internal/site/src/components/routes/system.tsx
++++ b/internal/site/src/components/routes/system.tsx
+@@ -13,7 +13,7 @@ import { ZfsCharts } from "./system/charts/storage-pool-charts"
+ import { BandwidthChart, ContainerNetworkChart } from "./system/charts/network-charts"
+ import { TemperatureChart, FanChart, BatteryChart } from "./system/charts/sensor-charts"
+ import { WiFiChart } from "./system/charts/wifi-chart"
+-import { GpuPowerChart, GpuCharts } from "./system/charts/gpu-charts"
++import { GpuPowerChart, GpuCharts, GpuUsageAndVramCharts } from "./system/charts/gpu-charts"
+ import {
+ 	LazyContainersTable,
+ 	LazyNetworkMonitorsTable,
+@@ -94,8 +94,25 @@ export default memo(function SystemDetail({ id }: { id: string }) {
+ 			<>
+ 				{/* main charts */}
+ 				<div className="grid xl:grid-cols-2 gap-4">
++					{/* Row 1: CPU usage and Memory (System RAM) usage */}
+ 					<CpuChart {...coreProps} />
++					<MemoryChart {...coreProps} />
++
++					{/* Row 2: GPU usage under CPU usage, VRAM usage under Memory usage */}
++					{hasGpuData && lastGpus && (
++						<GpuUsageAndVramCharts
++							chartData={chartData}
++							grid={grid}
++							dataEmpty={dataEmpty}
++							lastGpus={lastGpus as Record<string, GPUData>}
++						/>
++					)}
++
++					{/* Row 3: Temperature and GPU Power Draw */}
++					<TemperatureChart {...coreProps} />
++					{hasGpuPowerData && <GpuPowerChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} />}
+ 
++					{/* Subsequent rows: Container charts, Disk, Network, Swap, Load, Fan, etc. */}
+ 					{hasContainers && (
+ 						<ContainerCpuChart
+ 							chartData={chartData}
+@@ -106,8 +123,6 @@ export default memo(function SystemDetail({ id }: { id: string }) {
+ 						/>
+ 					)}
+ 
+-					<MemoryChart {...coreProps} />
+-
+ 					{hasContainers && (
+ 						<ContainerMemoryChart
+ 							chartData={chartData}
+@@ -136,17 +151,13 @@ export default memo(function SystemDetail({ id }: { id: string }) {
+ 
+ 					<LoadAverageChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} />
+ 
+-					<TemperatureChart {...coreProps} />
+-
+ 					<FanChart {...coreProps} />
+ 
+ 					<BatteryChart system={system} {...coreProps} />
+ 					<WiFiChart system={system} {...coreProps} />
+-
+-					{hasGpuPowerData && <GpuPowerChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} />}
+ 				</div>
+ 
+-				{hasGpuData && lastGpus && (
++				{hasGpuEnginesData && hasGpuData && lastGpus && (
+ 					<GpuCharts
+ 						chartData={chartData}
+ 						grid={grid}
+@@ -219,11 +230,26 @@ export default memo(function SystemDetail({ id }: { id: string }) {
+ 
+ 				<TabsContent value="core" forceMount className={activeTab === "core" ? "contents" : "hidden"}>
+ 					<div className="grid xl:grid-cols-2 gap-4">
++						{/* Row 1: CPU usage and Memory usage */}
+ 						<CpuChart {...coreProps} />
+-						<LoadAverageChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} />
+ 						<MemoryChart {...coreProps} />
+-						<SwapChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} systemStats={systemStats} />
++
++						{/* Row 2: GPU usage under CPU, VRAM usage under Memory */}
++						{hasGpuData && lastGpus && (
++							<GpuUsageAndVramCharts
++								chartData={chartData}
++								grid={grid}
++								dataEmpty={dataEmpty}
++								lastGpus={lastGpus as Record<string, GPUData>}
++							/>
++						)}
++
++						{/* Row 3: Temperature and GPU Power Draw */}
+ 						<TemperatureChart {...coreProps} setPageBottomExtraMargin={setPageBottomExtraMargin} />
++						{hasGpuPowerData && <GpuPowerChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} />}
++
++						<LoadAverageChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} />
++						<SwapChart chartData={chartData} grid={grid} dataEmpty={dataEmpty} systemStats={systemStats} />
+ 						<FanChart {...coreProps} />
+ 						<BatteryChart system={system} {...coreProps} />
+ 						{pageBottomExtraMargin > 0 && <div style={{ marginBottom: pageBottomExtraMargin }}></div>}
+diff --git a/internal/site/src/components/routes/system/charts/gpu-charts.tsx b/internal/site/src/components/routes/system/charts/gpu-charts.tsx
+index 4f05f51..d3fd070 100644
+--- a/internal/site/src/components/routes/system/charts/gpu-charts.tsx
++++ b/internal/site/src/components/routes/system/charts/gpu-charts.tsx
+@@ -98,6 +98,83 @@ export function GpuPowerChart({
+ 
+ /** GPU charts: summary grid (optional power-draw slot + engines) above a per-GPU usage/VRAM grid. Separate
+  *  grids keep each GPU's usage and VRAM cards paired, while odd:last-of-type stretches a lone summary card */
++export function GpuUsageAndVramCharts({
++	chartData,
++	grid,
++	dataEmpty,
++	lastGpus,
++}: {
++	chartData: ChartData
++	grid: boolean
++	dataEmpty: boolean
++	lastGpus: Record<string, GPUData>
++}) {
++	const gpuIds = Object.keys(lastGpus)
++	if (gpuIds.length === 0) return null
++
++	return (
++		<>
++			{gpuIds.map((id) => {
++				const gpu = lastGpus[id] as GPUData
++				return (
++					<Fragment key={id}>
++						<ChartCard
++							empty={dataEmpty}
++							grid={grid}
++							title={`${gpu.n} ${t`Usage`}`}
++							description={t`Average utilization of ${gpu.n}`}
++						>
++							<AreaChartDefault
++								chartData={chartData}
++								dataPoints={[
++									{
++										label: t`Usage`,
++										dataKey: ({ stats }) => stats?.g?.[id]?.u ?? 0,
++										color: 1,
++										opacity: 0.35,
++									},
++								]}
++								tickFormatter={(val) => `${toFixedFloat(val, 2)}%`}
++								contentFormatter={({ value }) => `${decimalString(value)}%`}
++							/>
++						</ChartCard>
++
++						{(gpu.mt ?? 0) > 0 && (
++							<ChartCard
++								empty={dataEmpty}
++								grid={grid}
++								title={`${gpu.n} VRAM`}
++								description={t`Precise utilization at the recorded time`}
++							>
++								<AreaChartDefault
++									chartData={chartData}
++									dataPoints={[
++										{
++											label: t`Usage`,
++											dataKey: ({ stats }) => stats?.g?.[id]?.mu ?? 0,
++											color: 2,
++											opacity: 0.25,
++										},
++									]}
++									max={gpu.mt}
++									tickFormatter={(val) => {
++										const { value, unit } = formatBytes(val, false, Unit.Bytes, true)
++										return `${toFixedFloat(value, value >= 10 ? 0 : 1)} ${unit}`
++									}}
++									contentFormatter={({ value }) => {
++										const { value: convertedValue, unit } = formatBytes(value, false, Unit.Bytes, true)
++										return `${decimalString(convertedValue)} ${unit}`
++									}}
++								/>
++							</ChartCard>
++						)}
++					</Fragment>
++				)
++			})}
++		</>
++	)
++}
++
+ export function GpuCharts({
+ 	chartData,
+ 	grid,
