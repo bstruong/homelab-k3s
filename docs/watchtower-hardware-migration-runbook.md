@@ -390,7 +390,9 @@ This ensures:
 Once the `adguard-home` pod is confirmed `1/1 Running`:
 1. Log into your router (`http://192.168.1.1`).
 2. Change **Primary DNS** back to `192.168.1.92`.
-3. Set **Secondary DNS** to `1.1.1.1`.
+3. Leave **Secondary DNS** blank (empty).
+   > [!WARNING]
+   > Do **not** set a public upstream (like `1.1.1.1` or `8.8.8.8`) as Secondary DNS in the router. Modern client resolvers (such as Fedora's `systemd-resolved`) treat multiple DNS servers as peers and fail over automatically on transient timeouts, bypassing AdGuard filtering and causing `*.watchtower.local` resolution to fail. Redundant upstream fallbacks are configured inside AdGuard Home itself.
 4. Save settings.
 
 ---
