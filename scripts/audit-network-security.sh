@@ -132,7 +132,7 @@ k_cmd() {
 
 if k_cmd cluster-info >/dev/null 2>&1; then
   # Check NetworkPolicies
-  for ns in caster immich docs identity; do
+  for ns in caster immich docs identity jarvis; do
     POLICIES="$(k_cmd -n "${ns}" get networkpolicy -o name 2>/dev/null || true)"
     if [[ -n "${POLICIES}" ]]; then
       ok "Namespace '${ns}' has NetworkPolicy enforced (${POLICIES})"
