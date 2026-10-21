@@ -372,7 +372,21 @@ EOF'
 
 ---
 
-### Step 7: Restore Router DNS to AdGuard Home
+### Step 7: Host Network Security Hardening (`firewalld` & LLMNR)
+Execute the host security reconciliation script to restrict the LAN attack surface, trust internal CNI routing (`10.42.0.0/16`), and disable LLMNR:
+```bash
+ssh watchtower "
+  sudo /home/brian/homelab-k3s/scripts/reconcile-host-security.sh
+"
+```
+This ensures:
+1. `firewalld` permits only `ssh` (22), `dns` (53 tcp/udp), `http` (80), `https` (443), and `cockpit` (9090) from the LAN.
+2. In-cluster CNI (`cni0` `10.42.0.0/16`) and `tailscale0` are assigned to the `trusted` zone.
+3. LLMNR (port 5355 tcp/udp) is disabled in `systemd-resolved` to prevent LAN spoofing / Responder poisoning attacks.
+
+---
+
+### Step 8: Restore Router DNS to AdGuard Home
 Once the `adguard-home` pod is confirmed `1/1 Running`:
 1. Log into your router (`http://192.168.1.1`).
 2. Change **Primary DNS** back to `192.168.1.92`.
@@ -381,7 +395,7 @@ Once the `adguard-home` pod is confirmed `1/1 Running`:
 
 ---
 
-### Step 8: Client Browser Root CA Trust & Verification (Firefox/Zen & Brave)
+### Step 9: Client Browser Root CA Trust & Verification (Firefox/Zen & Brave)
 > [!IMPORTANT]
 > All in-cluster HTTPS services (`*.watchtower.local`) and Cockpit (`https://watchtower.local:9090`) present TLS certificates signed by `Watchtower Homelab Intermediate CA`, chaining to the offline `Watchtower Homelab Root CA`.
 > To prevent certificate security warnings (`SEC_ERROR_UNKNOWN_ISSUER` or `NET::ERR_CERT_AUTHORITY_INVALID`) when loading web pages, both **Firefox (or Zen Browser)** and **Brave** on **MacBook Air** and **Metrotower** must trust the Root CA.
@@ -481,7 +495,7 @@ On Linux, Brave/Chromium relies on both the user NSS database (`~/.pki/nssdb`) a
 | **DNS Lockout** | Powering down Watchtower without setting router DNS fallback. | Client machines and installer will lose all DNS resolution. Set router DNS to `1.1.1.1` before powering down. |
 | **AI Model Constraint** | Agent using `qwen3.8-flash` on server. | **Strict constraint:** Absolutely NO `qwen3.8-flash` on Watchtower. Only `qwen36-coder-hybrid`. |
 | **Headscale/Tailscale** | Attempting to migrate Headscale to official Tailscale. | Explicitly postponed by user. Headscale remains on host daemon. |
-| **Browser TLS Trust** | Firefox, Zen, or Brave showing `SEC_ERROR_UNKNOWN_ISSUER` or `NET::ERR_CERT_AUTHORITY_INVALID`. | Follow Step 8 to configure NSS db (`~/.pki/nssdb`, Firefox profile) and enterprise roots (`security.enterprise_roots.enabled`). |
+| **Browser TLS Trust** | Firefox, Zen, or Brave showing `SEC_ERROR_UNKNOWN_ISSUER` or `NET::ERR_CERT_AUTHORITY_INVALID`. | Follow Step 9 to configure NSS db (`~/.pki/nssdb`, Firefox profile) and enterprise roots (`security.enterprise_roots.enabled`). |
 
 ---
 

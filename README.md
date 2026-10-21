@@ -17,7 +17,9 @@ manifests/
   watchtower/<app>/       one directory per app
   metrotower/             (empty — second node, not yet in use)
 docs/SECRETS.md           every credential, how it is created, how to rotate it
+docs/jarvis.md            shared LLM inference (sleepy-warm router)
 scripts/secrets.sh        generate + seal (or apply) credentials
+scripts/jarvis-*.sh       wake / sleep / status / lease for JARVIS
 scripts/bootstrap-sealed-secrets.sh
 scripts/install-hooks.sh  pre-commit guard against committing secrets
 deploy.sh                 apply + validate
@@ -88,8 +90,10 @@ credential can exist.
 | Registry | `infra` | `registry.watchtower.local` | Private container registry with htpasswd auth |
 | Caster | `caster` | `caster.watchtower.local` | Single-tenant Rails application + PostgreSQL 16 |
 | Homer | `home` | `start.watchtower.local` | Static landing page; one ConfigMap, no database, no widgets |
+| **JARVIS** | `jarvis` | `ai.watchtower.local` / `jarvis.watchtower.local` | Shared sleepy-warm llama.cpp router (`--models-max 1`); sole GPU owner; see [docs/jarvis.md](docs/jarvis.md) |
 
-Cockpit runs on the host, not in k3s, and is deliberately absent here.
+Cockpit runs on the host, not in k3s, and is deliberately absent here. Former
+`alpha-llama` inference manifests are retired; Alpha is a JARVIS client.
 
 ## Conventions
 

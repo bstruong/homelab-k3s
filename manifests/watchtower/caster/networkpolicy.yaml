@@ -1,0 +1,20 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: caster-postgres-ingress
+  namespace: caster
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: caster-postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: caster
+      ports:
+        - protocol: TCP
+          port: 5432
