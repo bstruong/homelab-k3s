@@ -34,7 +34,9 @@ spec:
               type: RuntimeDefault
           containers:
             - name: idle-sleep
-              image: bitnami/kubectl:1.31
+              # bitnami/kubectl:1.31 was removed from Docker Hub; legacy mirror
+              # still publishes the 1.31 tag used by the idle-sleep script.
+              image: bitnamilegacy/kubectl:1.31
               imagePullPolicy: IfNotPresent
               env:
                 - name: IDLE_TTL_MINUTES
