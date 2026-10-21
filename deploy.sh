@@ -29,7 +29,7 @@ ONLY_APP=""
 # The app namespaces. Traefik also lives in kube-system, but it is k3s's own
 # bundled install rather than something this repo deploys, so it is never waited
 # on here. This repo now owns no kube-system workloads at all.
-NAMESPACES=(adguard identity monitoring docs home infra caster immich alpha)
+NAMESPACES=(adguard identity monitoring docs home infra caster immich jarvis alpha)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -318,6 +318,12 @@ apply_apps() {
       continue
     fi
 
+    # Skip README-only / retired app dirs (e.g. alpha after JARVIS cutover).
+    if ! compgen -G "${dir}*.yaml" >/dev/null; then
+      warn "skipping ${app} (no manifests)"
+      continue
+    fi
+
     info "Applying ${app}"
     # PVs, PVCs and config first, so WaitForFirstConsumer binding has something
     # to bind the moment a pod is scheduled. Re-applying them as part of the
@@ -331,6 +337,7 @@ apply_apps() {
     if [[ -f "${dir}/rbac.yaml" ]]; then
       kapply "${dir}/rbac.yaml"
     fi
+    # lease-configmap is applied with the directory pass below.
     kapply "${dir}"
   done
 }
@@ -341,13 +348,25 @@ wait_for_rollouts() {
   fi
   info "Waiting for rollouts (timeout ${ROLLOUT_TIMEOUT} each)"
 
-  local ns kind obj rc=0
+  local ns kind obj rc=0 replicas
   for ns in "${NAMESPACES[@]}"; do
+    # JARVIS is sleepy-warm (often replicas=0). Deploys of other apps must not
+    # wait on it unless this run targets jarvis explicitly.
+    if [[ "${ns}" == "jarvis" && "${ONLY_APP}" != "jarvis" && -n "${ONLY_APP}" ]]; then
+      continue
+    fi
     kubectl get ns "${ns}" >/dev/null 2>&1 || continue
     for kind in deployment statefulset daemonset; do
       while read -r obj; do
         if [[ -z "${obj}" ]]; then
           continue
+        fi
+        if [[ "${kind}" == "deployment" ]]; then
+          replicas="$(kubectl -n "${ns}" get deployment "${obj}" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 1)"
+          if [[ "${replicas}" == "0" ]]; then
+            ok "${ns}/${kind}/${obj} (scaled to 0)"
+            continue
+          fi
         fi
         if kubectl -n "${ns}" rollout status "${kind}/${obj}" --timeout="${ROLLOUT_TIMEOUT}" >/dev/null 2>&1; then
           ok "${ns}/${kind}/${obj}"
@@ -377,6 +396,11 @@ validate() {
   local bad
   bad="$(kubectl get pods -A --field-selector=status.phase!=Running,status.phase!=Succeeded \
           --no-headers 2>/dev/null | grep -Ev '^(kube-system|default)[[:space:]]' || true)"
+  # Single-app deploys other than jarvis itself ignore a scaled-down or
+  # absent jarvis pod. Zero replicas leaves no pod.
+  if [[ -n "${ONLY_APP}" && "${ONLY_APP}" != "jarvis" ]]; then
+    bad="$(grep -Ev '^jarvis[[:space:]]' <<<"${bad}" || true)"
+  fi
   if [[ -n "${bad}" ]]; then
     echo "${bad}"
     fail "some pods are not running"

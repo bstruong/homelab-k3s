@@ -96,8 +96,17 @@ metadata:
 apiVersion: v1
 kind: Namespace
 metadata:
+  name: jarvis
+  labels:
+    homelab.watchtower/stack: watchtower
+    # Privileged is required to grant IPC_LOCK for mlock on llama-server.
+    pod-security.kubernetes.io/enforce: privileged
+---
+apiVersion: v1
+kind: Namespace
+metadata:
   name: alpha
   labels:
     homelab.watchtower/stack: watchtower
-    # Privileged is required to grant IPC_LOCK capability for mlock memory pinning
-    pod-security.kubernetes.io/enforce: privileged
+    # Legacy namespace retained for cutover; GPU inference moved to jarvis.
+    pod-security.kubernetes.io/enforce: baseline

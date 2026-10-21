@@ -1,15 +1,15 @@
----
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
-  name: alpha-llama-tls
-  namespace: alpha
+  name: jarvis-tls
+  namespace: jarvis
 spec:
-  secretName: alpha-llama-tls
+  secretName: jarvis-tls
   duration: 2160h
   renewBefore: 360h
   dnsNames:
     - ai.watchtower.local
+    - jarvis.watchtower.local
   issuerRef:
     name: watchtower-ca-issuer
     kind: ClusterIssuer
