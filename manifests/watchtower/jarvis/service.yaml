@@ -1,0 +1,17 @@
+# ClusterIP for in-cluster clients. Host port 8080 is also published on the
+# Deployment for node-local OPENAI_BASE_URL clients.
+apiVersion: v1
+kind: Service
+metadata:
+  name: jarvis
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: jarvis
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

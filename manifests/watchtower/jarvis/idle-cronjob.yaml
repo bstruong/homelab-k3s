@@ -1,0 +1,78 @@
+# Sleepy-warm idle reclaim. Every 10 minutes: if replicas>0, no active lease,
+# and jarvis.watchtower/last-activity-at is older than IDLE_TTL_MINUTES, scale
+# to 0. jarvis-up / jarvis-lease refresh that annotation; clients holding a
+# lease block sleep entirely.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: jarvis-idle-sleep
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+spec:
+  schedule: "*/10 * * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: jarvis-idle
+        spec:
+          serviceAccountName: jarvis-idle
+          restartPolicy: Never
+          automountServiceAccountToken: true
+          containers:
+            - name: idle-sleep
+              image: bitnami/kubectl:1.31
+              imagePullPolicy: IfNotPresent
+              env:
+                - name: IDLE_TTL_MINUTES
+                  value: "25"
+              command: ["/bin/bash", "-c"]
+              args:
+                - |
+                  set -euo pipefail
+                  NS=jarvis
+                  DEP=jarvis
+                  replicas="$(kubectl -n "$NS" get deployment "$DEP" -o jsonpath='{.spec.replicas}')"
+                  if [[ "${replicas:-0}" == "0" ]]; then
+                    echo "jarvis already scaled to 0"
+                    exit 0
+                  fi
+
+                  holder="$(kubectl -n "$NS" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' || true)"
+                  expires="$(kubectl -n "$NS" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' || true)"
+                  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  if [[ -n "${holder}" && -n "${expires}" && "${expires}" > "${now}" ]]; then
+                    echo "active lease holder=${holder} expires=${expires} — skip sleep"
+                    exit 0
+                  fi
+
+                  last="$(kubectl -n "$NS" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/last-activity-at}' || true)"
+                  if [[ -z "${last}" ]]; then
+                    echo "no last-activity-at — treating as idle, scaling to 0"
+                    kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
+                    exit 0
+                  fi
+
+                  last_epoch="$(date -u -d "${last}" +%s)"
+                  now_epoch="$(date -u +%s)"
+                  age_min=$(( (now_epoch - last_epoch) / 60 ))
+                  if (( age_min < IDLE_TTL_MINUTES )); then
+                    echo "last activity ${age_min}m ago < TTL ${IDLE_TTL_MINUTES}m — skip sleep"
+                    exit 0
+                  fi
+
+                  echo "scaling jarvis to 0 (idle ${age_min}m, no lease)"
+                  kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
+              resources:
+                requests:
+                  cpu: 10m
+                  memory: 64Mi
+                limits:
+                  cpu: 200m
+                  memory: 128Mi
