@@ -1,0 +1,44 @@
+# ServiceAccount for the idle-sleep CronJob (scale jarvis 1→0 when quiet).
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jarvis-idle
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jarvis-idle
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    resourceNames: ["jarvis"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["jarvis-lease"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jarvis-idle
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jarvis-idle
+subjects:
+  - kind: ServiceAccount
+    name: jarvis-idle
+    namespace: jarvis

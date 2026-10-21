@@ -1,11 +1,12 @@
----
-# The PersistentVolume mapping the host NVMe models partition directly into k3s.
+# Read-only view of /mnt/models on Watchtower. GGUF weights stay on the host;
+# this claim only mounts them. claimRef pins the PV to jarvis so alpha-models
+# / gemma-models cannot steal the binding after cutover.
 apiVersion: v1
 kind: PersistentVolume
 metadata:
-  name: alpha-models
+  name: jarvis-models
   labels:
-    app.kubernetes.io/name: alpha-models
+    app.kubernetes.io/name: jarvis-models
 spec:
   capacity:
     storage: 400Gi
@@ -16,8 +17,8 @@ spec:
     path: /mnt/models
     type: Directory
   claimRef:
-    namespace: alpha
-    name: alpha-models
+    namespace: jarvis
+    name: jarvis-models
   nodeAffinity:
     required:
       nodeSelectorTerms:
@@ -29,14 +30,14 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: alpha-models
-  namespace: alpha
+  name: jarvis-models
+  namespace: jarvis
   labels:
-    app.kubernetes.io/name: alpha-models
+    app.kubernetes.io/name: jarvis-models
 spec:
   accessModes: ["ReadOnlyMany"]
   storageClassName: appdata
-  volumeName: alpha-models
+  volumeName: jarvis-models
   resources:
     requests:
       storage: 400Gi

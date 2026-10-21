@@ -1,0 +1,16 @@
+# Exclusive-work lease for Alpha graded runs and long Omega sessions.
+# scripts/jarvis-lease.sh writes holder + expiry annotations. The idle CronJob
+# refuses to sleep while a non-expired lease is present.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jarvis-lease
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+  annotations:
+    jarvis.watchtower/holder: ""
+    jarvis.watchtower/expires-at: ""
+data:
+  # Placeholder key so the object is a valid ConfigMap; state lives in annotations.
+  status: idle
