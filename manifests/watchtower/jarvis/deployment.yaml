@@ -50,6 +50,7 @@ spec:
             - name: http
               containerPort: 8080
               # LAN / host clients (OPENAI_BASE_URL=http://127.0.0.1:8080/v1).
+              hostIP: 127.0.0.1
               hostPort: 8080
           securityContext:
             capabilities:
