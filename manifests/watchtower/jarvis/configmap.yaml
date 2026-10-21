@@ -48,7 +48,7 @@ data:
 
     [qwen36-coder-hybrid]
     model = /models/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf
-    alias = qwen36-coder-hybrid,qwen36-coder
+    alias = qwen36-coder-hybrid
     ctx-size = 262144
     parallel = 2
     n-cpu-moe = 32
@@ -62,15 +62,10 @@ data:
     parallel = 2
     cpu-moe = true
 
+    ; Single section for the E4B GGUF (duplicate [gemma4-e4b] alias conflict).
     [gemma4-4b]
     model = /models/gemma-4-e4b-it-q4_k_m.gguf
     alias = gemma4-4b,gemma4-e4b,gemma-4-e4b,gemma-4-4b
-    ctx-size = 16384
-    parallel = 1
-
-    [gemma4-e4b]
-    model = /models/gemma-4-e4b-it-q4_k_m.gguf
-    alias = gemma4-e4b,gemma4-4b,gemma-4-e4b
     ctx-size = 16384
     parallel = 1
 
