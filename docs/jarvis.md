@@ -10,7 +10,7 @@ Assassin, Odysseus, Omega) are **clients** only.
 | Deployment | `jarvis` |
 | ConfigMap (presets) | `jarvis-models` → `models.ini` (**source of truth**) |
 | Service DNS | `jarvis.jarvis.svc.cluster.local:8080` |
-| Host port | `:8080` on the Watchtower node |
+| Host port | `127.0.0.1:8080` on the Watchtower node (loopback-only `hostPort`) |
 | Ingress | `ai.watchtower.local`, `jarvis.watchtower.local` |
 | Client env | `OPENAI_BASE_URL=http://127.0.0.1:8080/v1` (node) or `http://jarvis.jarvis.svc.cluster.local:8080/v1` (in-cluster) |
 
@@ -42,6 +42,16 @@ Former GPU owners `alpha-llama` and `gemma-llama` are retired. GGUF weights on
 | I need my own llama Deployment | **No** |
 | I can run during Alpha’s leased eval | **No** — wait or fail loud |
 | Overnight silence parks the GPU | **Yes** |
+
+
+## Security posture
+
+Matches the Watchtower app baseline where possible (`seccomp` RuntimeDefault,
+capabilities dropped except `IPC_LOCK`, `allowPrivilegeEscalation: false`,
+`enableServiceLinks: false`, Traefik-scoped NetworkPolicy). Documented
+deviations: root + `IPC_LOCK` for mlock, privileged PSA on the `jarvis`
+namespace, writable rootfs for CUDA, and loopback `hostPort` 8080. See the
+security exceptions table in [README.md](../README.md).
 
 ## Scripts
 
