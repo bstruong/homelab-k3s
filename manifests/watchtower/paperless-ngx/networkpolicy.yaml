@@ -1,0 +1,20 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: paperless-redis-ingress
+  namespace: docs
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: paperless-redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: paperless-ngx
+      ports:
+        - protocol: TCP
+          port: 6379
