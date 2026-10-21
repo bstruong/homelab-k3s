@@ -7,6 +7,13 @@
 # Router mode: --models-preset + --models-max 1 keeps a single GGUF resident.
 # Image digest is the server-cuda build already on Watchtower (2026-10-15),
 # whose --help includes --models-preset and --models-max.
+#
+# Security deviations (also listed in README.md):
+# - Namespace PSA enforce=privileged so IPC_LOCK is allowed (baseline forbids it).
+# - Container runs as root: upstream ghcr.io/ggml-org/llama.cpp:server-cuda
+#   defaults to uid 0; non-root CUDA path for this digest is not yet validated.
+# - No readOnlyRootFilesystem: CUDA/scratch needs a writable root (and /tmp).
+# - hostPort 8080 is bound to 127.0.0.1 only (LAN exposure closed in PR #18).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,6 +38,13 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: llama-server
           image: ghcr.io/ggml-org/llama.cpp@sha256:e4cfff28678327b0ae7eda129e700e56a0fa55aa23db2f016256ea155c15c2b5
@@ -53,7 +67,10 @@ spec:
               hostIP: 127.0.0.1
               hostPort: 8080
           securityContext:
+            allowPrivilegeEscalation: false
             capabilities:
+              drop: ["ALL"]
+              # Required for models.ini load-mode=mlock (RLIMIT_MEMLOCK).
               add: ["IPC_LOCK"]
           resources:
             limits:

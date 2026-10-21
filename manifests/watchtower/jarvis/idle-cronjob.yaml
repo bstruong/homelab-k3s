@@ -25,6 +25,13 @@ spec:
           serviceAccountName: jarvis-idle
           restartPolicy: Never
           automountServiceAccountToken: true
+          enableServiceLinks: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            seccompProfile:
+              type: RuntimeDefault
           containers:
             - name: idle-sleep
               image: bitnami/kubectl:1.31
@@ -69,6 +76,11 @@ spec:
 
                   echo "scaling jarvis to 0 (idle ${age_min}m, no lease)"
                   kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
               resources:
                 requests:
                   cpu: 10m
@@ -76,3 +88,10 @@ spec:
                 limits:
                   cpu: 200m
                   memory: 128Mi
+              volumeMounts:
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: tmp
+              emptyDir:
+                sizeLimit: 16Mi
