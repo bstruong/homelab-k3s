@@ -1,0 +1,105 @@
+# JARVIS — shared Watchtower llama.cpp router (sleepy-warm).
+#
+# One GPU owner for the cluster. Clients (Alpha, Beta, Assassin, Odysseus,
+# Omega) wake this Deployment, send OpenAI-compatible requests with a preset
+# model id, and optionally hold a lease. See docs/jarvis.md.
+#
+# Router mode: --models-preset + --models-max 1 keeps a single GGUF resident.
+# Image digest is the server-cuda build already on Watchtower (2026-10-15),
+# whose --help includes --models-preset and --models-max.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jarvis
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+spec:
+  # Sleepy-warm default: wake via scripts/jarvis-up.sh or Alpha Engine::Manager.
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jarvis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jarvis
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      containers:
+        - name: llama-server
+          image: ghcr.io/ggml-org/llama.cpp@sha256:e4cfff28678327b0ae7eda129e700e56a0fa55aa23db2f016256ea155c15c2b5
+          imagePullPolicy: IfNotPresent
+          args:
+            - "--host"
+            - "0.0.0.0"
+            - "--port"
+            - "8080"
+            - "--models-preset"
+            - "/etc/llama/models.ini"
+            - "--models-max"
+            - "1"
+            - "--metrics"
+            - "--slots"
+          ports:
+            - name: http
+              containerPort: 8080
+              # LAN / host clients (OPENAI_BASE_URL=http://127.0.0.1:8080/v1).
+              hostPort: 8080
+          securityContext:
+            capabilities:
+              add: ["IPC_LOCK"]
+          resources:
+            limits:
+              nvidia.com/gpu: "1"
+              memory: 24Gi
+            requests:
+              nvidia.com/gpu: "1"
+              memory: 18Gi
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: models
+              mountPath: /models
+              readOnly: true
+            - name: preset
+              mountPath: /etc/llama/models.ini
+              subPath: models.ini
+              readOnly: true
+            - name: dshm
+              mountPath: /dev/shm
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: jarvis-models
+        - name: preset
+          configMap:
+            name: jarvis-models
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: 2Gi
