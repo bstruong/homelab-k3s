@@ -47,9 +47,9 @@ spec:
               value: /host/sys
             - name: HOST_ETC
               value: /host/etc
-            # Report disk usage for the appdata volume alongside the root fs.
+            # Report disk usage for appdata (SATA) and models (NVMe) alongside the root fs.
             - name: EXTRA_FILESYSTEMS
-              value: /host/mnt/appdata
+              value: /host/mnt/appdata,/host/mnt/models
             - name: KEY
               valueFrom:
                 secretKeyRef:
@@ -78,6 +78,15 @@ spec:
             - name: host-appdata
               mountPath: /host/mnt/appdata
               readOnly: true
+            - name: host-models
+              mountPath: /host/mnt/models
+              readOnly: true
+            - name: host-os-release
+              mountPath: /etc/os-release
+              readOnly: true
+            - name: host-os-release
+              mountPath: /host/usr/lib/os-release
+              readOnly: true
           resources:
             requests:
               cpu: 10m
@@ -102,3 +111,11 @@ spec:
           hostPath:
             path: /mnt/appdata
             type: Directory
+        - name: host-models
+          hostPath:
+            path: /mnt/models
+            type: Directory
+        - name: host-os-release
+          hostPath:
+            path: /usr/lib/os-release
+            type: File
