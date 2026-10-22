@@ -11,7 +11,10 @@
 # Security deviations (also listed in README.md):
 # - Namespace PSA enforce=privileged so IPC_LOCK is allowed (baseline forbids it).
 # - Container runs as root: upstream ghcr.io/ggml-org/llama.cpp:server-cuda
-#   defaults to uid 0; non-root CUDA path for this digest is not yet validated.
+#   defaults to uid 0. Peer apps (immich/vaultwarden) use root init + non-root
+#   app uid, but this CUDA digest still needs device node access + mlock as
+#   uid 0; optional non-root is a documented exception until a server-cuda
+#   build publishes a verified non-root entrypoint.
 # - No readOnlyRootFilesystem: CUDA/scratch needs a writable root (and /tmp).
 # - hostPort 8080 is bound to 127.0.0.1 only (LAN exposure closed in PR #18).
 apiVersion: apps/v1
