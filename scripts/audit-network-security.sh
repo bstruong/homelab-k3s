@@ -148,6 +148,19 @@ if k_cmd cluster-info >/dev/null 2>&1; then
     ok "Retired namespace 'gemma' is clean"
   fi
 
+  if k_cmd -n alpha get deploy alpha-llama >/dev/null 2>&1; then
+    fail "Retired deployment alpha/alpha-llama still exists — delete it (JARVIS owns the GPU)"
+    FAILURES=$((FAILURES + 1))
+  else
+    ok "Retired deployment alpha/alpha-llama is gone"
+  fi
+
+  if k_cmd -n alpha get pvc alpha-models >/dev/null 2>&1; then
+    warn "Stale PVC alpha/alpha-models still present (safe to delete after jarvis-models is Bound; never delete /mnt/models)"
+  else
+    ok "Stale PVC alpha/alpha-models is clean"
+  fi
+
   if k_cmd get ns odysseus >/dev/null 2>&1; then
     ok "Self-hosted namespace 'odysseus' is present on the cluster"
   fi

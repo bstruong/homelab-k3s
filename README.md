@@ -136,7 +136,7 @@ The exceptions, each documented at the top of its manifest:
 | AdGuard Home | root + `NET_BIND_SERVICE` | its first-launch check is a bare `os.Getuid() == 0` test, which no capability can satisfy |
 | Uptime Kuma | starts as root, adds `CHOWN`, `SETUID`, `SETGID`, `NET_RAW` | its entrypoint chowns the data volume and then drops to uid 1000 via `setpriv`; the app process itself is unprivileged |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
-| JARVIS | root + `IPC_LOCK`; PSA `privileged`; no read-only rootfs; `hostPort` 8080 on `127.0.0.1` | `load-mode=mlock` needs `IPC_LOCK` (baseline PSA forbids it); upstream `llama.cpp:server-cuda` defaults to uid 0; CUDA scratch needs a writable root; loopback `hostPort` serves node-local `OPENAI_BASE_URL` clients without LAN bind |
+| JARVIS | root + `IPC_LOCK`; PSA `privileged`; no read-only rootfs; `hostPort` 8080 on `127.0.0.1` | `load-mode=mlock` needs `IPC_LOCK` (baseline PSA forbids it); upstream `llama.cpp:server-cuda` defaults to uid 0 (optional non-root CUDA not validated for this digest); CUDA scratch needs a writable root; loopback `hostPort` serves node-local `OPENAI_BASE_URL` clients without LAN bind |
 
 **Host volume ownership.** `fsGroup` does not automatically recurse through in-tree `hostPath`
 volumes. To eliminate brittle manual host `chown` steps, workloads feature self-healing
