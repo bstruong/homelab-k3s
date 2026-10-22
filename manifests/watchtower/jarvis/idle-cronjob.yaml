@@ -1,7 +1,9 @@
-# Sleepy-warm idle reclaim. Every 10 minutes: if replicas>0, no active lease,
-# and jarvis.watchtower/last-activity-at is older than IDLE_TTL_MINUTES, scale
-# to 0. jarvis-up / jarvis-lease refresh that annotation; clients holding a
-# lease block sleep entirely.
+# Sleepy-warm idle reclaim. Every 10 minutes:
+# 1) If replicas>0, sample llama.cpp /metrics. Growing token counters or
+#    in-flight requests refresh jarvis.watchtower/last-activity-at so real
+#    inference traffic (not only jarvis-up / lease scripts) keeps the GPU warm.
+# 2) If no active lease and last-activity is older than IDLE_TTL_MINUTES, scale
+#    to 0.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -41,27 +43,91 @@ spec:
               env:
                 - name: IDLE_TTL_MINUTES
                   value: "25"
+                - name: JARVIS_METRICS_HOST
+                  value: "jarvis.jarvis.svc.cluster.local"
+                - name: JARVIS_METRICS_PORT
+                  value: "8080"
               command: ["/bin/bash", "-c"]
               args:
                 - |
                   set -euo pipefail
                   NS=jarvis
                   DEP=jarvis
+                  CM=jarvis-lease
+                  now_rfc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+
+                  # Fetch prometheus text from llama-server via bash /dev/tcp
+                  # (bitnami kubectl image has no curl).
+                  fetch_metrics() {
+                    local host="$1" port="$2" out
+                    out="$(
+                      timeout 5 bash -c '
+                        set -e
+                        exec 3<>/dev/tcp/'"$host"'/'"$port"'
+                        printf "GET /metrics HTTP/1.0\r\nHost: %s\r\n\r\n" "'"$host"'" >&3
+                        cat <&3
+                      ' 2>/dev/null
+                    )" || return 1
+                    # Strip HTTP headers (HTTP/1.0 response)
+                    printf '%s' "$out" | awk 'BEGIN{h=1} h&&$0==""{h=0;next} !h{print}'
+                  }
+
+                  # Prefer cumulative token counters; fall back to processing gauge.
+                  metrics_warmth_score() {
+                    local body="$1" predicted processing prompt score
+                    predicted="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)tokens_predicted_total/ {s+=$2} END {printf "%.0f", s+0}')"
+                    prompt="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)prompt_tokens_total/ {s+=$2} END {printf "%.0f", s+0}')"
+                    processing="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)requests_processing/ {s+=$2} END {printf "%.0f", s+0}')"
+                    score=$(( predicted + prompt ))
+                    if (( processing > 0 )); then
+                      # In-flight work always counts as activity this tick.
+                      score=$(( score + processing + 1 ))
+                    fi
+                    echo "$score"
+                  }
+
+                  warm_from_inference_traffic() {
+                    local body score prev
+                    body="$(fetch_metrics "${JARVIS_METRICS_HOST}" "${JARVIS_METRICS_PORT}" || true)"
+                    if [[ -z "${body}" ]]; then
+                      echo "metrics unreachable — skip traffic warmth"
+                      return 0
+                    fi
+                    score="$(metrics_warmth_score "$body")"
+                    prev="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/metrics-warmth-score}' || true)"
+                    prev="${prev:-0}"
+                    if (( score > prev )); then
+                      echo "inference traffic detected (score ${score} > ${prev}) — refresh last-activity"
+                      kubectl -n "$NS" annotate configmap "$CM" \
+                        "jarvis.watchtower/last-activity-at=$(now_rfc)" \
+                        "jarvis.watchtower/metrics-warmth-score=${score}" \
+                        --overwrite
+                    else
+                      # Persist baseline so the next tick can detect growth.
+                      kubectl -n "$NS" annotate configmap "$CM" \
+                        "jarvis.watchtower/metrics-warmth-score=${score}" \
+                        --overwrite
+                      echo "no new inference traffic (score ${score})"
+                    fi
+                  }
+
                   replicas="$(kubectl -n "$NS" get deployment "$DEP" -o jsonpath='{.spec.replicas}')"
                   if [[ "${replicas:-0}" == "0" ]]; then
                     echo "jarvis already scaled to 0"
                     exit 0
                   fi
 
-                  holder="$(kubectl -n "$NS" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' || true)"
-                  expires="$(kubectl -n "$NS" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' || true)"
-                  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  warm_from_inference_traffic
+
+                  holder="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' || true)"
+                  expires="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' || true)"
+                  now="$(now_rfc)"
                   if [[ -n "${holder}" && -n "${expires}" && "${expires}" > "${now}" ]]; then
                     echo "active lease holder=${holder} expires=${expires} — skip sleep"
                     exit 0
                   fi
 
-                  last="$(kubectl -n "$NS" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/last-activity-at}' || true)"
+                  last="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/last-activity-at}' || true)"
                   if [[ -z "${last}" ]]; then
                     echo "no last-activity-at — treating as idle, scaling to 0"
                     kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
