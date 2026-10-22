@@ -24,8 +24,14 @@ spec:
       ports:
         - protocol: TCP
           port: 8080
-    # 2. Allow Node / CNI gateway / cluster subnet for probes, in-cluster
-    #    clients (Alpha, etc.), and 127.0.0.1 hostPort consumers.
+    # 2. Same-namespace clients (idle CronJob metrics warmth, future sidecars).
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 8080
+    # 3. Node / CNI gateway / cluster subnet for probes, in-cluster clients
+    #    (Alpha, etc.), and 127.0.0.1 hostPort consumers.
     - from:
         - ipBlock:
             cidr: 10.42.0.0/16
