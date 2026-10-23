@@ -1,0 +1,191 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: odysseus
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: odysseus
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: odysseus
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: odysseus
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          runAsUser: 0
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsUser: 0
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - FOWNER
+                - DAC_OVERRIDE
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /data
+              chown -R 1000:1000 /data
+              chmod 700 /data
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+        - name: wait-research
+          image: busybox:1.37
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 65534
+            capabilities:
+              drop:
+                - ALL
+          command:
+            - sh
+            - -c
+            - |
+              i=0
+              while [ "$i" -lt 30 ]; do
+                if wget -q -O /dev/null "http://chromadb:8000/api/v2/heartbeat" \
+                  && wget -q -O /dev/null "http://searxng:8080/healthz"; then
+                  exit 0
+                fi
+                i=$((i + 1))
+                sleep 2
+              done
+              echo "SearXNG or Chroma not ready; Odysseus will still start" >&2
+              exit 0
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: odysseus
+          image: ghcr.io/odysseus-dev/odysseus:1.0.3-dev.9712a54
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 7000
+          env:
+            - name: ODYSSEUS_DATA_DIR
+              value: /app/data
+            - name: AUTH_ENABLED
+              value: "true"
+            - name: LOCALHOST_BYPASS
+              value: "false"
+            - name: ODYSSEUS_ADMIN_USER
+              value: admin
+            - name: ODYSSEUS_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: odysseus
+                  key: admin-password
+            - name: ALLOWED_ORIGINS
+              value: https://odysseus.watchtower.local
+            - name: SECURE_COOKIES
+              value: "true"
+            - name: FORWARDED_ALLOW_IPS
+              value: '*'
+            - name: PUID
+              value: "1000"
+            - name: PGID
+              value: "1000"
+            # On-Demand / Sleepy-Warm Hardware Integration
+            - name: ODYSSEUS_INPROCESS_POLLERS
+              value: "0"
+            - name: ODYSSEUS_STARTUP_WARMUPS
+              value: "0"
+            - name: ODYSSEUS_MODEL_KEEPALIVE
+              value: "0"
+            - name: LLM_HOST
+              value: jarvis.jarvis.svc.cluster.local:8080
+            - name: SEARXNG_INSTANCE
+              value: http://searxng:8080
+            - name: CHROMADB_HOST
+              value: chromadb
+            - name: CHROMADB_PORT
+              value: "8000"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - DAC_OVERRIDE
+                - FOWNER
+                - SETUID
+                - SETGID
+                - SETPCAP
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+            - name: logs
+              mountPath: /app/logs
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          startupProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 36
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: odysseus-data
+        - name: logs
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

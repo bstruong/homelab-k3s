@@ -1,0 +1,32 @@
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odysseus-data
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: odysseus
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: appdata
+  volumeName: odysseus-data
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: odysseus-chroma
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: odysseus-chroma
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: appdata
+  volumeName: odysseus-chroma
+  resources:
+    requests:
+      storage: 10Gi
