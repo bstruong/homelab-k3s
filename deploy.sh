@@ -53,6 +53,7 @@ SECRET_SPECS=(
   "caster|caster|caster|postgres-password,secret-key-base"
   "immich|immich|immich|postgres-password"
   "odysseus|odysseus|odysseus|admin-password"
+  "nextcloud|docs|nextcloud|postgres-password,admin-user,admin-password"
 )
 
 # What actually happens when an optional secret is missing.
@@ -65,6 +66,7 @@ consequence_for_app() {
     registry)      echo "registry pod stays in CreateContainerConfigError; no image push or pull works" ;;
     immich)        echo "immich-postgres and immich-server both stay in CreateContainerConfigError" ;;
     odysseus)      echo "odysseus pod stays in CreateContainerConfigError" ;;
+    nextcloud)     echo "nextcloud and nextcloud-postgres pods stay in CreateContainerConfigError" ;;
     *)             echo "the app may not start" ;;
   esac
 }
@@ -142,9 +144,10 @@ check_appdata() {
   info "If pre-seeding empty directories on ${NODE}:"
   cat <<EOF
 
-  sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,paperless-ngx,beszel,ntfy,uptime-kuma,registry}
+  sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,paperless-ngx,beszel,ntfy,uptime-kuma,registry,odysseus,odysseus-chroma}
   sudo mkdir -p ${APPDATA_ROOT}/caster/postgres
   sudo mkdir -p ${APPDATA_ROOT}/immich/{postgres,library}
+  sudo mkdir -p ${APPDATA_ROOT}/nextcloud/{html,postgres}
 
 EOF
 }

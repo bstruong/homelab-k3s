@@ -1,0 +1,168 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nextcloud
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: nextcloud
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: nextcloud
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: nextcloud
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 33
+        fsGroupChangePolicy: "OnRootMismatch"
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: init-dirs
+          image: busybox:1.37
+          command:
+            - sh
+            - -c
+            - |
+              mkdir -p /var/www/html/data /var/www/html/config /var/www/html/custom_apps
+              chown -R 33:33 /var/www/html
+              chmod -R u+rwX,g+rwX /var/www/html
+          securityContext:
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "FOWNER", "DAC_OVERRIDE"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/www/html
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+        - name: ca-trust
+          image: nextcloud:30.0.6-apache
+          command: ["/bin/sh", "-c"]
+          args:
+            - cat /etc/ssl/certs/ca-certificates.crt /ca/ca.crt > /ca-bundle/ca-certificates.crt
+          volumeMounts:
+            - name: homelab-ca
+              mountPath: /ca
+              readOnly: true
+            - name: ca-bundle
+              mountPath: /ca-bundle
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 33
+            runAsGroup: 33
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 64Mi
+      containers:
+        - name: nextcloud
+          image: nextcloud:30.0.6-apache
+          env:
+            - name: POSTGRES_HOST
+              value: nextcloud-postgres
+            - name: POSTGRES_DB
+              value: nextcloud
+            - name: POSTGRES_USER
+              value: nextcloud
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud
+                  key: postgres-password
+            - name: REDIS_HOST
+              value: nextcloud-redis
+            - name: NEXTCLOUD_ADMIN_USER
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud
+                  key: admin-user
+            - name: NEXTCLOUD_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nextcloud
+                  key: admin-password
+            - name: NEXTCLOUD_TRUSTED_DOMAINS
+              value: "drive.watchtower.local localhost 192.168.1.92"
+            - name: OVERWRITEPROTOCOL
+              value: "https"
+            - name: OVERWRITEHOST
+              value: "drive.watchtower.local"
+            - name: OVERWRITECLIURL
+              value: "https://drive.watchtower.local"
+            - name: TRUSTED_PROXIES
+              value: "10.42.0.0/16 10.43.0.0/16 192.168.1.0/24 127.0.0.1"
+          ports:
+            - name: http
+              containerPort: 80
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+              add: ["CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"]
+          volumeMounts:
+            - name: data
+              mountPath: /var/www/html
+            - name: ca-bundle
+              mountPath: /etc/ssl/certs/ca-certificates.crt
+              subPath: ca-certificates.crt
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+          startupProbe:
+            httpGet:
+              path: /status.php
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /status.php
+              port: http
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /status.php
+              port: http
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+      volumes:
+        - name: homelab-ca
+          configMap:
+            name: homelab-ca
+        - name: ca-bundle
+          emptyDir: {}
+        - name: data
+          persistentVolumeClaim:
+            claimName: nextcloud-data
+        - name: tmp
+          emptyDir: {}
