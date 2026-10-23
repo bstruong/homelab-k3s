@@ -30,6 +30,18 @@ description = "Postgres connection string containing a password"
 regex = '''postgres(ql)?://[^:\s]+:[^@\s]+@'''
 keywords = ["postgres://", "postgresql://"]
 
+[[rules]]
+id = "personal-email-exposure"
+description = "Personal developer email address (use GitHub noreply instead)"
+regex = '''(?i)bstruong\.developer@gmail\.com'''
+keywords = ["bstruong.developer"]
+
+[[rules]]
+id = "hardware-mac-address"
+description = "Hardware MAC address in manifests or docs"
+regex = '''(?i)([0-9a-f]{2}[:-]){5}([0-9a-f]{2})'''
+keywords = [":"]
+
 [allowlist]
 description = "Documentation placeholders and encrypted material"
 regexes = [

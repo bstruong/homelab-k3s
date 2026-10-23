@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  secret-scan:
+    name: Secret & PII Scanner
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+      - name: Guard against unencrypted k8s Secrets & PII
+        run: |
+          echo "Checking for unsealed secrets..."
+          if grep -rnE '^kind:[[:space:]]*Secret[[:space:]]*$' manifests/ apps/ 2>/dev/null; then
+            echo "::error::Found unencrypted kind: Secret in manifests or apps! Use SealedSecrets."
+            exit 1
+          fi
+          if grep -rnE '^[[:space:]]*stringData:' manifests/ apps/ 2>/dev/null; then
+            echo "::error::Found unencrypted stringData in manifests or apps! Use SealedSecrets."
+            exit 1
+          fi
+
+          echo "Checking for personal email leaks..."
+          if grep -rniE 'bstruong\.developer@gmail\.com' manifests/ apps/ scripts/ docs/ 2>/dev/null; then
+            echo "::error::Found personal email address in repository files! Use 48808221+bstruong@users.noreply.github.com."
+            exit 1
+          fi
+
+          echo "Checking for hardware MAC addresses..."
+          if grep -rnE '([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})' manifests/ apps/ scripts/ docs/ 2>/dev/null; then
+            echo "::error::Found hardware MAC address in repository files! Redact with <MAC_ADDRESS>."
+            exit 1
+          fi
+
+  lint-yaml:
+    name: Lint YAML
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run yamllint
+        uses: ibiqlik/action-yamllint@v3
+        with:
+          config_file: .yamllint.yaml
+          file_or_dir: "manifests/ apps/ .github/"
+
+  validate-k8s:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate Manifests
+        run: |
+          kubeconform \
+            -kubernetes-version 1.30.0 \
+            -strict \
+            -ignore-missing-schemas \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .ResourceAPIGroup }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            -summary \
+            manifests/ apps/
+
+  lint-scripts:
+    name: Lint Shell Scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "scripts"
+          additional_files: "deploy.sh"
