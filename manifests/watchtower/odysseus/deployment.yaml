@@ -28,7 +28,6 @@ spec:
         - name: fix-permissions
           image: busybox:1.37
           imagePullPolicy: IfNotPresent
-          runAsUser: 0
           securityContext:
             allowPrivilegeEscalation: false
             runAsUser: 0
