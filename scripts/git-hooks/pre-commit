@@ -60,6 +60,12 @@ while IFS= read -r file; do
   if grep -qE 'BEGIN [A-Z ]*PRIVATE KEY' <<<"${content}"; then
     report "${file}: private key block"
   fi
+  if grep -qiE 'bstruong\.developer@gmail\.com' <<<"${content}"; then
+    report "${file}: personal developer email (use 48808221+bstruong@users.noreply.github.com)"
+  fi
+  if grep -qE '([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})' <<<"${content}"; then
+    report "${file}: hardware MAC address"
+  fi
 done <<<"${staged}"
 
 # Defer to gitleaks for everything else, if it is installed.
