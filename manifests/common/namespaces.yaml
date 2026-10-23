@@ -110,3 +110,12 @@ metadata:
     homelab.watchtower/stack: watchtower
     # Legacy namespace retained for cutover; GPU inference moved to jarvis.
     pod-security.kubernetes.io/enforce: baseline
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: odysseus
+  labels:
+    homelab.watchtower/stack: watchtower
+    pod-security.kubernetes.io/enforce: baseline
+

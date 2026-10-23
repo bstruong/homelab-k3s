@@ -29,7 +29,7 @@ ONLY_APP=""
 # The app namespaces. Traefik also lives in kube-system, but it is k3s's own
 # bundled install rather than something this repo deploys, so it is never waited
 # on here. This repo now owns no kube-system workloads at all.
-NAMESPACES=(adguard identity monitoring docs home infra caster immich jarvis alpha)
+NAMESPACES=(adguard identity monitoring docs home infra caster immich jarvis alpha odysseus)
 
 # app|namespace|secret|required keys (a trailing ? marks an optional key,
 # which must exist but may be empty)
@@ -52,6 +52,7 @@ SECRET_SPECS=(
   "registry|infra|registry-htpasswd|htpasswd?"
   "caster|caster|caster|postgres-password,secret-key-base"
   "immich|immich|immich|postgres-password"
+  "odysseus|odysseus|odysseus|admin-password"
 )
 
 # What actually happens when an optional secret is missing.
@@ -63,6 +64,7 @@ consequence_for_app() {
     paperless-ngx) echo "paperless-ngx pod stays in CreateContainerConfigError" ;;
     registry)      echo "registry pod stays in CreateContainerConfigError; no image push or pull works" ;;
     immich)        echo "immich-postgres and immich-server both stay in CreateContainerConfigError" ;;
+    odysseus)      echo "odysseus pod stays in CreateContainerConfigError" ;;
     *)             echo "the app may not start" ;;
   esac
 }
