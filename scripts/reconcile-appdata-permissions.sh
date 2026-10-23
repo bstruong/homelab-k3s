@@ -99,6 +99,11 @@ reconcile_recursive "$APPDATA_DIR/vaultwarden" "1000:1000" "700" "600"
 [[ -d "$APPDATA_DIR/vaultwarden/icon_cache" ]] && chmod 755 "$APPDATA_DIR/vaultwarden/icon_cache"
 [[ -d "$APPDATA_DIR/vaultwarden/sends" ]] && chmod 755 "$APPDATA_DIR/vaultwarden/sends"
 
+# --- Nextcloud (www-data runs as UID 33, Postgres runs as UID 999) ---
+reconcile "$APPDATA_DIR/nextcloud" "0:0" "755"
+reconcile_recursive "$APPDATA_DIR/nextcloud/html" "33:33" "755" "644"
+reconcile_recursive "$APPDATA_DIR/nextcloud/postgres" "999:999" "700" "600"
+
 # --- Homelab CA (Root CA offline storage, UID 1000) ---
 if [[ -d "$APPDATA_DIR/homelab-ca" ]]; then
   chown -R 1000:1000 "$APPDATA_DIR/homelab-ca"

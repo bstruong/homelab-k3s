@@ -25,8 +25,13 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MANIFEST_DIR="${REPO_ROOT}/manifests/watchtower"
 CONTROLLER_NAME="${SEALED_SECRETS_CONTROLLER:-sealed-secrets-controller}"
 CONTROLLER_NS="${SEALED_SECRETS_NAMESPACE:-kube-system}"
+SEALED_SECRETS_CERT="${SEALED_SECRETS_CERT:-}"
+CERT_FLAG=()
+if [[ -n "${SEALED_SECRETS_CERT}" && -f "${SEALED_SECRETS_CERT}" ]]; then
+  CERT_FLAG=(--cert "${SEALED_SECRETS_CERT}")
+fi
 
-ALL_APPS="traefik vaultwarden beszel paperless-ngx registry caster immich"
+ALL_APPS="traefik vaultwarden beszel paperless-ngx registry caster immich odysseus nextcloud"
 
 MODE=""
 SHOW=false
@@ -111,6 +116,8 @@ app_namespace() {
     registry)          echo infra ;;
     caster)            echo caster ;;
     immich)            echo immich ;;
+    odysseus)          echo odysseus ;;
+    nextcloud)         echo docs ;;
     *) die "unknown app: $1 (known: ${ALL_APPS})" ;;
   esac
 }
@@ -298,6 +305,49 @@ app_literals() {
       printf 'summary:Immich postgres      immich / %s\n' "${pw}"
       printf 'literal:postgres-password=%s\n' "${pw}"
       ;;
+
+    odysseus)
+      local pw
+      pw="$(kubectl get secret odysseus -n odysseus \
+              -o jsonpath='{.data.admin-password}' 2>/dev/null \
+            | base64 -d 2>/dev/null || true)"
+      if [[ -z "${pw}" ]]; then
+        pw="$(gen 24)"
+      fi
+
+      printf 'summary:Odysseus admin        admin / %s\n' "${pw}"
+      printf 'literal:admin-password=%s\n' "${pw}"
+      ;;
+
+    nextcloud)
+      local pg_pw admin_user admin_pw
+      pg_pw="$(kubectl get secret nextcloud -n docs \
+              -o jsonpath='{.data.postgres-password}' 2>/dev/null \
+            | base64 -d 2>/dev/null || true)"
+      if [[ -z "${pg_pw}" ]]; then
+        pg_pw="$(gen 32)"
+      fi
+
+      admin_user="$(kubectl get secret nextcloud -n docs \
+              -o jsonpath='{.data.admin-user}' 2>/dev/null \
+            | base64 -d 2>/dev/null || true)"
+      if [[ -z "${admin_user}" ]]; then
+        admin_user="admin"
+      fi
+
+      admin_pw="$(kubectl get secret nextcloud -n docs \
+              -o jsonpath='{.data.admin-password}' 2>/dev/null \
+            | base64 -d 2>/dev/null || true)"
+      if [[ -z "${admin_pw}" ]]; then
+        admin_pw="$(gen 24)"
+      fi
+
+      printf 'summary:Nextcloud postgres   nextcloud / %s\n' "${pg_pw}"
+      printf 'literal:postgres-password=%s\n' "${pg_pw}"
+      printf 'summary:Nextcloud admin      %s / %s\n' "${admin_user}" "${admin_pw}"
+      printf 'literal:admin-user=%s\n' "${admin_user}"
+      printf 'literal:admin-password=%s\n' "${admin_pw}"
+      ;;
   esac
 }
 
@@ -364,6 +414,7 @@ do_seal() {
       | kubeseal --format yaml \
           --controller-name "${CONTROLLER_NAME}" \
           --controller-namespace "${CONTROLLER_NS}" \
+          "${CERT_FLAG[@]}" \
       > "${out}.tmp"; then
     rm -f "${out}.tmp"
     die "kubeseal failed for ${app}"
@@ -443,6 +494,9 @@ registry        infra        registry-htpasswd        htpasswd
 caster          caster       caster                   postgres-password,
                                                       secret-key-base
 immich          immich       immich                   postgres-password
+odysseus        odysseus     odysseus                 admin-password
+nextcloud       docs         nextcloud                postgres-password,
+                                                      admin-user, admin-password
 
 Credentials that are NOT Kubernetes Secrets, because the app owns its own
 credential store and sets it up through a first-run wizard:
@@ -486,8 +540,10 @@ main() {
   if [[ "${MODE}" == "seal" ]]; then
     command -v kubeseal >/dev/null \
       || die "kubeseal not found. Install it, or use 'apply' mode. See docs/SECRETS.md"
-    kubectl -n "${CONTROLLER_NS}" get deployment "${CONTROLLER_NAME}" >/dev/null 2>&1 \
-      || die "no sealed-secrets controller in ${CONTROLLER_NS}. Run scripts/bootstrap-sealed-secrets.sh"
+    if [[ ${#CERT_FLAG[@]} -eq 0 ]]; then
+      kubectl -n "${CONTROLLER_NS}" get deployment "${CONTROLLER_NAME}" >/dev/null 2>&1 \
+        || die "no sealed-secrets controller in ${CONTROLLER_NS}. Run scripts/bootstrap-sealed-secrets.sh"
+    fi
     info "Sealing secrets — the encrypted output is safe to commit"
   else
     kubectl cluster-info >/dev/null 2>&1 || die "cannot reach the cluster"
