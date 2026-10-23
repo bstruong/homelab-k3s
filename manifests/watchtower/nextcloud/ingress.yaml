@@ -1,0 +1,75 @@
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: nextcloud-dav-redirect
+  namespace: docs
+spec:
+  redirectRegex:
+    regex: "^https://(.*)/.well-known/(card|cal)dav"
+    replacement: "https://${1}/remote.php/dav/"
+    permanent: true
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nextcloud-http
+  namespace: docs
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`drive.watchtower.local`)
+      middlewares:
+        - name: nextcloud-dav-redirect
+      services:
+        - name: nextcloud
+          port: 80
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: nextcloud-https
+  namespace: docs
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`drive.watchtower.local`)
+      middlewares:
+        - name: nextcloud-dav-redirect
+      services:
+        - name: nextcloud
+          port: 80
+  tls:
+    secretName: nextcloud-tls
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: collabora-http
+  namespace: docs
+spec:
+  entryPoints: ["web"]
+  routes:
+    - kind: Rule
+      match: Host(`office.watchtower.local`)
+      services:
+        - name: nextcloud-collabora
+          port: 9980
+---
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: collabora-https
+  namespace: docs
+spec:
+  entryPoints: ["websecure"]
+  routes:
+    - kind: Rule
+      match: Host(`office.watchtower.local`)
+      services:
+        - name: nextcloud-collabora
+          port: 9980
+  tls:
+    secretName: collabora-tls

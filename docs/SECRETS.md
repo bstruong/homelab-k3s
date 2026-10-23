@@ -73,6 +73,7 @@ protection is that no workflow here ever writes a plaintext credential to disk.
 | Registry | `infra` | `registry-htpasswd` | `htpasswd` | no |
 | Caster | `caster` | `caster` | `postgres-password`, `secret-key-base` | yes |
 | Immich | `immich` | `immich` | `postgres-password` | yes |
+| Nextcloud | `docs` | `nextcloud` | `postgres-password`, `admin-user`, `admin-password` | yes |
 
 ### Required vs optional
 

@@ -117,11 +117,6 @@ data:
       - name: "Documents & Media"
         icon: "fas fa-folder-open"
         items:
-          - name: "Odysseus"
-            subtitle: "Personal AI workspace"
-            icon: "fas fa-compass"
-            url: "https://odysseus.watchtower.local"
-            target: "_blank"
           - name: "Paperless-ngx"
             subtitle: "Document archive"
             icon: "fas fa-file-lines"
@@ -136,6 +131,20 @@ data:
             subtitle: "MLS market intelligence pipeline"
             icon: "fas fa-chart-line"
             url: "https://caster.watchtower.local/up"
+            target: "_blank"
+
+      - name: "Workspace"
+        icon: "fas fa-compass"
+        items:
+          - name: "Nextcloud"
+            subtitle: "Files, documents & spreadsheets"
+            icon: "fas fa-cloud"
+            url: "https://drive.watchtower.local"
+            target: "_blank"
+          - name: "Odysseus"
+            subtitle: "Personal AI workspace"
+            icon: "fas fa-ship"
+            url: "https://odysseus.watchtower.local"
             target: "_blank"
 
       - name: "Practice & Katas"

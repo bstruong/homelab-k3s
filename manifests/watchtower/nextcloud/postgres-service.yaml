@@ -1,0 +1,16 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nextcloud-postgres
+  namespace: docs
+  labels:
+    app.kubernetes.io/name: nextcloud-postgres
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: nextcloud-postgres
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
