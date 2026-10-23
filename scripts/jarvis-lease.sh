@@ -8,12 +8,15 @@ set -euo pipefail
 
 NS="${JARVIS_NAMESPACE:-jarvis}"
 CONTEXT="${KUBE_CONTEXT:-}"
+WATCHTOWER_SSH="${WATCHTOWER_SSH:-watchtower}"
 
 k() {
   if [[ -n "${CONTEXT}" ]]; then
     kubectl --context="${CONTEXT}" "$@"
-  else
+  elif [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
     kubectl "$@"
+  else
+    ssh "${WATCHTOWER_SSH}" kubectl "$(printf '%q ' "$@")"
   fi
 }
 
