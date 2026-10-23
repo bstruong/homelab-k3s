@@ -1,0 +1,90 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chromadb
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: chromadb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: chromadb
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: chromadb
+    spec:
+      nodeSelector:
+        kubernetes.io/hostname: watchtower
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: chromadb
+          image: docker.io/chromadb/chroma:1.5.9@sha256:1e0b73a187a28757c572acba508c46f48c9e8b0acaf5c20e6d95cdedce1acdf6
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ANONYMIZED_TELEMETRY
+              value: "FALSE"
+          resources:
+            requests:
+              cpu: 50m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          livenessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: http
+            periodSeconds: 30
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+          startupProbe:
+            httpGet:
+              path: /api/v2/heartbeat
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 24
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: odysseus-chroma
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chromadb
+  namespace: odysseus
+  labels:
+    app.kubernetes.io/name: chromadb
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: chromadb
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
