@@ -40,6 +40,7 @@ spec:
               mkdir -p /beszel_data
               chown -R 1000:1000 /beszel_data
               chmod 700 /beszel_data
+              [ -d /beszel_data/bin ] && chmod -R 755 /beszel_data/bin || true
           securityContext:
             runAsUser: 0
             allowPrivilegeEscalation: false
@@ -58,7 +59,7 @@ spec:
               memory: 64Mi
       containers:
         - name: beszel-hub
-          image: henrygd/beszel:0.9.1
+          image: henrygd/beszel:0.21.0
           ports:
             - name: http
               containerPort: 8090
@@ -75,6 +76,9 @@ spec:
               mountPath: /beszel_data
             - name: tmp
               mountPath: /tmp
+            - name: data
+              mountPath: /beszel
+              subPath: bin/beszel
           livenessProbe:
             httpGet:
               path: /api/health
