@@ -78,7 +78,7 @@ jobs:
             -strict \
             -ignore-missing-schemas \
             -schema-location default \
-            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .ResourceAPIGroup }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{ .Group }}/{{ .ResourceKind }}_{{ .ResourceAPIVersion }}.json' \
             -summary \
             manifests/ apps/
 
@@ -94,3 +94,4 @@ jobs:
         with:
           scandir: "scripts"
           additional_files: "deploy.sh"
+          severity: error
