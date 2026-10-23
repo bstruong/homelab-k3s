@@ -30,7 +30,7 @@ loopback-only and LAN 8080 is firewalled.
    Alpha `Engine::Manager#up`) scales to 1 and waits on `/health`.
 3. **Idle sleep** — CronJob `jarvis-idle-sleep` every 10 minutes: samples
    llama.cpp `/metrics` so real inference traffic refreshes
-   `last-activity-at`; if no active lease and activity is older than ~25
+   `last-activity-at`; if no active lease and activity is older than ~60
    minutes, scale to 0.
 4. **Leases** — Exclusive Alpha/Omega work:
    `./scripts/jarvis-lease.sh acquire <holder> [ttl-minutes]`. Blocks idle
