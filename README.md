@@ -90,6 +90,7 @@ credential can exist.
 | Registry | `infra` | `registry.watchtower.local` | Private container registry with htpasswd auth |
 | Caster | `caster` | `caster.watchtower.local` | Single-tenant Rails application + PostgreSQL 16 |
 | Homer | `home` | `start.watchtower.local` | Static landing page; one ConfigMap, no database, no widgets |
+| **Nextcloud** | `docs` | `drive.watchtower.local` | Self-hosted Google Drive alternative; PostgreSQL 16 + Redis; Collabora Online at `office.watchtower.local` |
 | **JARVIS** | `jarvis` | `ai.watchtower.local` / `jarvis.watchtower.local` | Shared sleepy-warm llama.cpp router (`--models-max 1`); sole GPU owner; see [docs/jarvis.md](docs/jarvis.md) |
 
 Cockpit runs on the host, not in k3s, and is deliberately absent here. Former
