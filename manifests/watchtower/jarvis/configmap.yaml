@@ -17,8 +17,10 @@ data:
 
     [*]
     n-gpu-layers = all
-    threads = 7
-    threads-batch = 7
+    threads = 8
+    threads-batch = 14
+    cpu-mask = 00ff
+    poll = 50
     parallel = 1
     batch-size = 2048
     ubatch-size = 2048
@@ -42,11 +44,17 @@ data:
     alias = qwen36-coder
     ctx-size = 262144
     parallel = 1
-    n-cpu-moe = 28
+    n-cpu-moe = 27
     cache-type-k = q4_0
     cache-type-v = q4_0
-    threads-batch = 12
-    ctx-checkpoints = 8
+    threads = 8
+    threads-batch = 14
+    cpu-mask = 00ff
+    poll = 50
+    spec-type = ngram-mod
+    spec-draft-n-max = 4
+    spec-ngram-mod-n-match = 24
+    ctx-checkpoints = 4
     checkpoint-min-step = 2048
 
     [qwen36-coder-hybrid]
@@ -54,11 +62,17 @@ data:
     alias = qwen36-coder-hybrid
     ctx-size = 262144
     parallel = 1
-    n-cpu-moe = 28
+    n-cpu-moe = 27
     cache-type-k = q4_0
     cache-type-v = q4_0
-    threads-batch = 12
-    ctx-checkpoints = 8
+    threads = 8
+    threads-batch = 14
+    cpu-mask = 00ff
+    poll = 50
+    spec-type = ngram-mod
+    spec-draft-n-max = 4
+    spec-ngram-mod-n-match = 24
+    ctx-checkpoints = 4
     checkpoint-min-step = 2048
 
     [glm47-reap]
