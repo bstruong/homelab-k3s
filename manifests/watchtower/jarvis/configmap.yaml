@@ -20,7 +20,7 @@ data:
     threads = 8
     threads-batch = 14
     cpu-mask = 00ff
-    poll = 50
+    poll = 100
     parallel = 1
     batch-size = 2048
     ubatch-size = 1024
@@ -50,9 +50,10 @@ data:
     threads = 8
     threads-batch = 14
     cpu-mask = 00ff
-    poll = 50
+    poll = 100
     spec-type = ngram-mod
     spec-draft-n-max = 5
+    spec-ngram-mod-n-min = 1
     spec-ngram-mod-n-match = 16
     cache-reuse = 64
     ubatch-size = 1024
@@ -70,9 +71,10 @@ data:
     threads = 8
     threads-batch = 14
     cpu-mask = 00ff
-    poll = 50
+    poll = 100
     spec-type = ngram-mod
     spec-draft-n-max = 5
+    spec-ngram-mod-n-min = 1
     spec-ngram-mod-n-match = 16
     cache-reuse = 64
     ubatch-size = 1024
