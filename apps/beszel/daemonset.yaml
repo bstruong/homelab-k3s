@@ -50,6 +50,11 @@ spec:
             # Report disk usage for appdata (SATA) and models (NVMe) alongside the root fs.
             - name: EXTRA_FILESYSTEMS
               value: /host/mnt/appdata,/host/mnt/models
+            # Filter noise down to critical sensors (CPU, GPU, NVMe SSD)
+            - name: PRIMARY_SENSOR
+              value: "k10temp_tctl"
+            - name: SENSORS
+              value: "k10temp_tctl,nvme_composite,GeForce*"
             - name: KEY
               valueFrom:
                 secretKeyRef:
