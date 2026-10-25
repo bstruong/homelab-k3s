@@ -508,7 +508,7 @@ Once post-migration bootstrap is complete, verify each service against this chec
 ```text
 [ ] https://start.watchtower.local       - Homer dashboard loads all 15 tiles
 [ ] https://watchtower.local:9090        - Cockpit opens in new tab with green lock
-[ ] https://status.watchtower.local      - Uptime Kuma reports 15/15 monitors UP
+[ ] https://status.watchtower.local      - Uptime Kuma reports 21/21 monitors UP
 [ ] https://dns.watchtower.local         - AdGuard Home actively serving DNS queries
 [ ] https://vault.watchtower.local       - Vaultwarden syncs with desktop/mobile clients
 [ ] https://immich.watchtower.local      - Immich web UI accessible and library healthy
