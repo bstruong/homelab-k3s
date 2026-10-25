@@ -5,9 +5,10 @@
 # for Watchtower (Fedora Server / K3s / Zen 5 Ryzen 9700X + RTX 3060).
 #
 # Codifies:
-# 1. /usr/local/bin/jarvis-governor.sh: Detects active llama-server inference.
-#    - When active: CPU EPP -> performance, GPU Persistence -> 1, THP -> always.
-#    - When idle: CPU EPP -> balance_performance, GPU Persistence -> 0, THP -> madvise.
+# 1. /usr/local/bin/jarvis-governor.sh: Detects JARVIS pod & active inference state.
+#    - perf (active slot / inference): CPU EPP -> performance, GPU Persistence -> 1, THP -> always.
+#    - warm (pod running, 0 active slots): CPU EPP -> balance_performance, GPU Persistence -> 1, THP -> always.
+#    - idle (pod scaled to 0): CPU EPP -> balance_performance, GPU Persistence -> 0, THP -> madvise.
 # 2. Systemd service + timer (runs every 15s) to reconcile hardware states.
 # ==============================================================================
 
@@ -39,7 +40,14 @@ CURRENT_STATE="$(cat "${STATE_FILE}" 2>/dev/null || echo "unknown")"
 
 # Check if llama-server container process is active on the host
 if pgrep -f "llama-server" >/dev/null 2>&1; then
-  TARGET_STATE="perf"
+  # Check if a slot is actively processing tokens or CPU utilization > 25%
+  if curl -fsS --max-time 1 "http://127.0.0.1:8080/slots" 2>/dev/null | grep -q '"is_processing":true'; then
+    TARGET_STATE="perf"
+  elif ps -C llama-server -o %cpu= 2>/dev/null | awk '{s+=$1} END {exit !(s > 25.0)}'; then
+    TARGET_STATE="perf"
+  else
+    TARGET_STATE="warm"
+  fi
 else
   TARGET_STATE="idle"
 fi
@@ -49,7 +57,7 @@ if [[ "${CURRENT_STATE}" == "${TARGET_STATE}" ]]; then
 fi
 
 if [[ "${TARGET_STATE}" == "perf" ]]; then
-  # 1. Boost CPU responsiveness on AMD Zen 5 cores
+  # 1. Boost CPU responsiveness on AMD Zen 5 cores during active inference
   for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
     echo "performance" > "$f" 2>/dev/null || true
   done
@@ -63,7 +71,23 @@ if [[ "${TARGET_STATE}" == "perf" ]]; then
   fi
 
   echo "perf" > "${STATE_FILE}"
-  logger -t jarvis-governor "JARVIS active: CPU EPP -> performance, GPU Persistence -> 1, THP -> always."
+  logger -t jarvis-governor "JARVIS inference active: CPU EPP -> performance, GPU Persistence -> 1, THP -> always."
+elif [[ "${TARGET_STATE}" == "warm" ]]; then
+  # 1. Relax CPU EPP between prompts while keeping GPU driver and 2MB THP warm
+  for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+    echo "balance_performance" > "$f" 2>/dev/null || true
+  done
+
+  # 2. Keep GPU Persistence Mode locked while pod is resident
+  nvidia-smi -pm 1 >/dev/null 2>&1 || true
+
+  # 3. Keep Transparent Huge Pages at always while MoE weights are resident
+  if [[ -f /sys/kernel/mm/transparent_hugepage/enabled ]]; then
+    echo "always" > /sys/kernel/mm/transparent_hugepage/enabled 2>/dev/null || true
+  fi
+
+  echo "warm" > "${STATE_FILE}"
+  logger -t jarvis-governor "JARVIS warm standby: CPU EPP -> balance_performance, GPU Persistence -> 1, THP -> always."
 else
   # 1. Revert CPU to energy-saving balanced profile
   for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do

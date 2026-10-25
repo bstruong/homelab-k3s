@@ -26,12 +26,18 @@ spec:
         port: 8000
         exposedPort: 80
         hostPort: 80
+        transport:
+          respondingTimeouts:
+            readTimeout: "600s"
       websecure:
         port: 8443
         exposedPort: 443
         hostPort: 443
         tls:
           enabled: true
+        transport:
+          respondingTimeouts:
+            readTimeout: "600s"
     ingressRoute:
       dashboard:
         enabled: false
