@@ -23,7 +23,8 @@ data:
     poll = 50
     parallel = 1
     batch-size = 2048
-    ubatch-size = 2048
+    ubatch-size = 1024
+    cache-reuse = 64
     flash-attn = on
     load-mode = mlock
     cache-type-k = q8_0
@@ -31,7 +32,6 @@ data:
     jinja = true
     metrics = true
     slots = true
-    fit-target = 1024
 
     [qwen25-coder-14b]
     model = /models/qwen2.5-coder-14b-instruct-q4_k_m.gguf
@@ -52,8 +52,10 @@ data:
     cpu-mask = 00ff
     poll = 50
     spec-type = ngram-mod
-    spec-draft-n-max = 4
-    spec-ngram-mod-n-match = 24
+    spec-draft-n-max = 5
+    spec-ngram-mod-n-match = 16
+    cache-reuse = 64
+    ubatch-size = 1024
     ctx-checkpoints = 4
     checkpoint-min-step = 2048
 
@@ -70,8 +72,10 @@ data:
     cpu-mask = 00ff
     poll = 50
     spec-type = ngram-mod
-    spec-draft-n-max = 4
-    spec-ngram-mod-n-match = 24
+    spec-draft-n-max = 5
+    spec-ngram-mod-n-match = 16
+    cache-reuse = 64
+    ubatch-size = 1024
     ctx-checkpoints = 4
     checkpoint-min-step = 2048
 
