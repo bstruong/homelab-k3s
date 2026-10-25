@@ -18,6 +18,7 @@ manifests/
   metrotower/             (empty — second node, not yet in use)
 docs/SECRETS.md           every credential, how it is created, how to rotate it
 docs/jarvis.md            shared LLM inference (sleepy-warm router)
+docs/ci-runner-migration-plan.md  self-hosted GitHub Actions runners plan (Ryzen 7 9700X)
 scripts/secrets.sh        generate + seal (or apply) credentials
 scripts/jarvis-*.sh       wake / sleep / status / lease for JARVIS
 scripts/bootstrap-sealed-secrets.sh
