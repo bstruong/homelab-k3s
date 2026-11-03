@@ -27,12 +27,12 @@ loopback-only and LAN 8080 is firewalled.
    `--models-preset` + `--models-max 1`. Clients name a preset id; JARVIS
    loads/swaps; the previous model unloads.
 2. **Wake on demand** — Default `replicas: 0`. `./scripts/jarvis-up.sh` (or
-   Alpha `Engine::Manager#up`) scales to 1 and waits on `/health`.
+   homelab-k3s `scripts/alpha-engine` or `jarvis-up.sh`) scales to 1 and waits on `/health`.
 3. **Idle sleep** — CronJob `jarvis-idle-sleep` every 10 minutes: samples
    llama.cpp `/metrics` so real inference traffic refreshes
    `last-activity-at`; if no active lease and activity is older than ~60
    minutes, scale to 0.
-4. **Leases** — Exclusive Alpha/Omega work:
+4. **Leases** — Exclusive long eval / agent work:
    `./scripts/jarvis-lease.sh acquire <holder> [ttl-minutes]`. Blocks idle
    sleep. Release with `./scripts/jarvis-lease.sh release`.
 5. **Same client path** — `health → (wake if down) → POST /v1/chat/completions`
