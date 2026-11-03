@@ -21,5 +21,8 @@ See [docs/jarvis.md](../../docs/jarvis.md).
 [`manager.rb`](manager.rb) is the historical Alpha client: scale Deployment
 `jarvis/jarvis`, annotate lease ConfigMap `jarvis-lease`, health-check the
 OpenAI-compatible endpoint. Use when you need the same API from Ruby scripts.
-Tests snapshot: [`engine_manager_test.rb`](engine_manager_test.rb) (not wired
-into Alpha's CI).
+Run the unit snapshot (no cluster required):
+
+```bash
+ruby -I scripts/alpha-engine scripts/alpha-engine/engine_manager_test.rb
+```
