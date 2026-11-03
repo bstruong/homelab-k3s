@@ -19,11 +19,9 @@ module Alpha
     # Thin client for JARVIS (shared k8s inference Deployment (optional)).
     #
     # Production preset SoT is the JARVIS ConfigMap `jarvis-models` / models.ini
-    # in homelab-k3s — not this repo's engine/models.ini. Alpha wakes/scales
-    # JARVIS, checks health, and optionally holds a lease. Model selection is
-    # the OpenAI `model` id on chat completions (router `--models-max 1`).
-    #
-    #     class Manager
+    # in homelab-k3s — not this repo's engine/models.ini. Prefer jarvis-*.sh
+    # for day-to-day ops; this Ruby client remains for Manager#up / #acquire_lease!.
+    class Manager
       DEFAULT_HOST = "user@homelab.local"
       DEFAULT_NAMESPACE = "jarvis"
       DEFAULT_DEPLOYMENT = "jarvis"

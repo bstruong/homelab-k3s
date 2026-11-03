@@ -1,9 +1,14 @@
 # frozen_string_literal: true
 
-require "test_helper"
+# Standalone snapshot of Alpha's former Engine::Manager tests.
+# Run from repo root:
+#   ruby -I scripts/alpha-engine scripts/alpha-engine/engine_manager_test.rb
 
-class EngineManagerTest < AlphaTest
-  test "initializes with JARVIS defaults" do
+require "minitest/autorun"
+require_relative "manager"
+
+class EngineManagerTest < Minitest::Test
+  def test_initializes_with_jarvis_defaults
     mgr = Alpha::Engine::Manager.new(base_url: Alpha::Engine::Manager::DEFAULT_BASE_URL)
     assert_equal "jarvis", mgr.namespace
     assert_equal "jarvis", mgr.deployment
@@ -11,7 +16,7 @@ class EngineManagerTest < AlphaTest
     assert_equal "http://127.0.0.1:8080", mgr.server_root_url
   end
 
-  test "resolves presets correctly" do
+  def test_resolves_presets_correctly
     mgr = Alpha::Engine::Manager.new
     model, al = mgr.resolve_model_and_alias("glm47-reap")
     assert_includes model, "GLM-4.7"
@@ -38,13 +43,13 @@ class EngineManagerTest < AlphaTest
     end
   end
 
-  test "model_ids_for returns OpenAI model ids for health matching" do
+  def test_model_ids_for_returns_openai_model_ids_for_health_matching
     mgr = Alpha::Engine::Manager.new
     assert_includes mgr.model_ids_for("gemma4-4b"), "gemma4-e4b"
     assert_includes mgr.model_ids_for("qwen36-coder-hybrid"), "qwen36-coder-hybrid"
   end
 
-  test "preset_args stub still exposes model path for labs" do
+  def test_preset_args_stub_still_exposes_model_path_for_labs
     mgr = Alpha::Engine::Manager.new
 
     q14 = mgr.preset_args("qwen25-coder-14b")
@@ -74,23 +79,9 @@ class EngineManagerTest < AlphaTest
     assert_includes q38_3b, "/models/Qwen3.8-27B-GSQ-RCO-IQ3_XXS.gguf"
   end
 
-  test "patch_preset! refuses under JARVIS router ownership" do
+  def test_patch_preset_refuses_under_jarvis_router_ownership
     mgr = Alpha::Engine::Manager.new
     err = assert_raises(RuntimeError) { mgr.patch_preset!("qwen36-coder-hybrid") }
     assert_match(/JARVIS uses router presets/, err.message)
-  end
-
-  test "InferenceTarget provides wake! and sleep! methods" do
-    target = Alpha::InferenceTarget.new(
-      base_url: "http://127.0.0.1:8080/v1",
-      model_id: "qwen36-coder-hybrid",
-      engine_preset: "qwen36-coder-hybrid"
-    )
-
-    assert_respond_to target, :wake!
-    assert_respond_to target, :sleep!
-    assert_respond_to target, :metrics
-    assert_instance_of Alpha::Engine::Manager, target.manager
-    assert_equal "jarvis", target.manager.namespace
   end
 end
