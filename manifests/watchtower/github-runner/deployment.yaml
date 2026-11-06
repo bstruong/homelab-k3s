@@ -106,6 +106,12 @@ spec:
               value: /cache/xdg
             - name: NPM_CONFIG_CACHE
               value: /cache/npm
+            # Circuit breaker: mutation uses host Postgres (not Actions services).
+            # Pods reach the node-published :54329 via this IP (see README).
+            - name: WATCHTOWER_HOST_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
           securityContext:
             privileged: true
             allowPrivilegeEscalation: true
