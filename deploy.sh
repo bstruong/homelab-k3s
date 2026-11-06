@@ -50,7 +50,7 @@ SECRET_SPECS=(
   "beszel|monitoring|beszel-agent|hub-public-key?"
   "paperless-ngx|docs|paperless-ngx|secret-key?,admin-user?,admin-password?"
   "registry|infra|registry-htpasswd|htpasswd?"
-  "github-runner|infra|github-runner-token|token?"
+  "github-runner|infra|github-runner-token|access-token?"
   "caster|caster|caster|postgres-password,secret-key-base"
   "immich|immich|immich|postgres-password"
   "odysseus|odysseus|odysseus|admin-password"
@@ -65,7 +65,7 @@ consequence_for_app() {
     beszel)        echo "beszel-agent will not start; the hub generates this key on first run (docs/SECRETS.md)" ;;
     paperless-ngx) echo "paperless-ngx pod stays in CreateContainerConfigError" ;;
     registry)      echo "registry pod stays in CreateContainerConfigError; no image push or pull works" ;;
-    github-runner) echo "github-runner pod stays in CreateContainerConfigError until the owner seals a real registration token (manifests/watchtower/github-runner/README.md)" ;;
+    github-runner) echo "github-runner pod stays in CreateContainerConfigError until the owner seals a durable PAT as access-token (manifests/watchtower/github-runner/README.md)" ;;
     immich)        echo "immich-postgres and immich-server both stay in CreateContainerConfigError" ;;
     odysseus)      echo "odysseus pod stays in CreateContainerConfigError" ;;
     nextcloud)     echo "nextcloud and nextcloud-postgres pods stay in CreateContainerConfigError" ;;
