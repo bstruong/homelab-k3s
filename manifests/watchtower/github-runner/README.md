@@ -100,10 +100,31 @@ job itself runs in a container — matching GitHub's service-container docs.
 
 ### Circuit breaker (if DinD misbehaves on Watchtower)
 
-If privileged dockerd is blocked or unstable:
+**Applied (2026-11):** DinD on this runner fails extracting `postgres:15`
+(`failed to convert whiteout … operation not permitted`). Sapphire
+`mutation-nightly.yml` therefore has **no** `jobs.*.services` Postgres.
+
+Host Postgres for mutation (create once on the Watchtower node):
+
+```bash
+mkdir -p /mnt/appdata/sapphire-mutation-pg
+podman run -d --name sapphire-mutation-pg --restart=always \
+  -e POSTGRES_USER=postgres \
+  -e POSTGRES_PASSWORD=sapphire \
+  -e POSTGRES_DB=sapphire_test \
+  -v /mnt/appdata/sapphire-mutation-pg:/var/lib/postgresql/data:Z \
+  -p 54329:5432 \
+  docker.io/library/postgres:15
+```
+
+The runner pod reaches it via the **node IP** (`status.hostIP` /
+DNS `watchtower`), not pod `localhost`. Optional: inject
+`WATCHTOWER_HOST_IP` from `fieldRef: status.hostIP` on the Deployment.
+
+If privileged dockerd is blocked or unstable more broadly:
 
 1. Keep this runner for CPU-bound steps that do **not** need service containers.
-2. Point mutation at a **host Postgres** (or an in-cluster Postgres Service) via
+2. Point mutation at this **host Postgres** (or an in-cluster Postgres Service) via
    workflow env (`TEST_DATABASE_URL=…`) instead of `jobs.*.services`.
 3. Leave ARC / scale-to-zero / “all CI on Watchtower” on the raw backlog.
 
