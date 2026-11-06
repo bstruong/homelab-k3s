@@ -19,44 +19,58 @@ access the agent does not have:
 
 Until the Secret exists, the pod stays in `CreateContainerConfigError`.
 
-## Seal the registration token (owner)
+## Seal the runner credential (owner)
 
-Registration tokens from **Settings → Actions → Runners → New self-hosted runner**
-expire in about an hour. Paste the real value; do not invent one.
+`EPHEMERAL=1` deregisters after each job and the Deployment recreates the pod.
+A short-lived **registration token** (~1h, Settings → Actions → Runners →
+New self-hosted runner, or `gh api -X POST repos/OWNER/REPO/actions/runners/registration-token`)
+cannot survive that loop. The Deployment therefore expects a durable
+**PAT** as `ACCESS_TOKEN` / Secret key `access-token`.
+
+### Preferred: durable PAT → `access-token`
+
+Create a **classic** PAT with `repo` scope (private repos), or a
+**fine-grained** PAT on `bstruong/sapphire` with permission to manage
+self-hosted runners (Administration: Read and write). `gh` cannot mint
+classic/fine-grained PATs via API — create one in GitHub → Settings →
+Developer settings. An interim restore may temporarily use a `gh auth`
+OAuth token — replace it ASAP with a dedicated classic (`repo`) or
+fine-grained runner PAT, reseal `access-token`, and re-apply. Do **not**
+leave interactive OAuth sealed long-term.
 
 ```bash
 # From the homelab-k3s repo root, with kubectl context = Watchtower and
 # sealed-secrets controller running (or SEALED_SECRETS_CERT pointing at the
 # public cert).
 
-# Preferred for smoke: one-shot registration token → key `token`
-./scripts/secrets.sh seal-generic github-runner-token infra \
-  token="<GITHUB_RUNNER_REGISTRATION_TOKEN>" \
-  > manifests/watchtower/github-runner/sealedsecret.yaml
-
-git add manifests/watchtower/github-runner/sealedsecret.yaml
-git commit -m "chore(github-runner): seal registration token"
-```
-
-`EPHEMERAL=1` deregisters after each job and the Deployment recreates the pod.
-A short-lived registration token will not survive that loop. For steady-state:
-
-```bash
-# Durable: classic PAT with repo scope (private repos). Key must still be
-# named `token` for the current Deployment's secretKeyRef, OR switch the
-# Deployment env from RUNNER_TOKEN to ACCESS_TOKEN (upstream preferred).
-#
-# Recommended durable shape (edit deployment.yaml env to ACCESS_TOKEN /
-# key access-token, then):
 ./scripts/secrets.sh seal-generic github-runner-token infra \
   access-token="<GITHUB_PAT_WITH_REPO_SCOPE>" \
   > manifests/watchtower/github-runner/sealedsecret.yaml
+
+git add manifests/watchtower/github-runner/sealedsecret.yaml
+git commit -m "chore(github-runner): seal durable ACCESS_TOKEN PAT"
+./deploy.sh github-runner
+kubectl -n infra rollout restart deploy/github-runner-sapphire
 ```
 
-Until you change the Deployment to `ACCESS_TOKEN` / `access-token`, seal the
-registration token as `token=` as shown in the first command.
+### Emergency only: registration token
 
-Rotate with the same command (overwrite the SealedSecret) and re-apply.
+If you must bring the runner back before a PAT exists, mint a registration
+token and temporarily point the Deployment at `RUNNER_TOKEN` / key `token`
+(or set `EPHEMERAL=0` so one registration sticks). Revert to the PAT shape
+above as soon as possible — a registration token expires in ~1h and will
+CrashLoop under `EPHEMERAL=1` after the next job.
+
+```bash
+REG=$(gh api -X POST repos/bstruong/sapphire/actions/runners/registration-token --jq .token)
+# Only if deployment.yaml still uses RUNNER_TOKEN / key token:
+./scripts/secrets.sh seal-generic github-runner-token infra \
+  token="$REG" \
+  > manifests/watchtower/github-runner/sealedsecret.yaml
+```
+
+Rotate the PAT with the same `seal-generic` command (overwrite the
+SealedSecret) and re-apply.
 
 ## Apply
 
