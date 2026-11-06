@@ -19,7 +19,7 @@ manifests/
 docs/SECRETS.md           every credential, how it is created, how to rotate it
 docs/jarvis.md            shared LLM inference (sleepy-warm router)
 docs/ci-runner-migration-plan.md  self-hosted GitHub Actions runners plan (Ryzen 7 9700X)
-scripts/secrets.sh        generate + seal (or apply) credentials
+scripts/secrets.sh        generate + seal / seal-generic (or apply) credentials
 scripts/jarvis-*.sh       wake / sleep / status / lease for JARVIS
 scripts/bootstrap-sealed-secrets.sh
 scripts/install-hooks.sh  pre-commit guard against committing secrets
@@ -89,6 +89,7 @@ credential can exist.
 | Paperless-ngx | `docs` | `paperless.watchtower.local` | Worker concurrency pinned to 1; SQLite + Redis |
 | Immich | `immich` | `immich.watchtower.local` | Photo and video backup; PostgreSQL 14 + VectorChord |
 | Registry | `infra` | `registry.watchtower.local` | Private container registry with htpasswd auth |
+| GitHub runner | `infra` | — (outbound to GitHub only) | Option-1 self-hosted Actions runner for Sapphire; see `manifests/watchtower/github-runner/README.md` |
 | Caster | `caster` | `caster.watchtower.local` | Single-tenant Rails application + PostgreSQL 16 |
 | Homer | `home` | `start.watchtower.local` | Static landing page; one ConfigMap, no database, no widgets |
 | **Nextcloud** | `docs` | `drive.watchtower.local` | Self-hosted Google Drive alternative; PostgreSQL 16 + Redis; Collabora Online at `office.watchtower.local` |
@@ -139,6 +140,7 @@ The exceptions, each documented at the top of its manifest:
 | Uptime Kuma | starts as root, adds `CHOWN`, `SETUID`, `SETGID`, `NET_RAW` | its entrypoint chowns the data volume and then drops to uid 1000 via `setpriv`; the app process itself is unprivileged |
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
 | JARVIS | root + `IPC_LOCK`; PSA `privileged`; no read-only rootfs; `hostPort` 8080 on `127.0.0.1` | `load-mode=mlock` needs `IPC_LOCK` (baseline PSA forbids it); upstream `llama.cpp:server-cuda` defaults to uid 0 (optional non-root CUDA not validated for this digest); CUDA scratch needs a writable root; loopback `hostPort` serves node-local `OPENAI_BASE_URL` clients without LAN bind |
+| GitHub runner | root + `privileged`; `infra` PSA `privileged`; `START_DOCKER_SERVICE` | Actions Postgres service containers need dockerd; Watchtower has no host `docker.sock` (k3s/containerd), so DinD runs in-process |
 
 **Host volume ownership.** `fsGroup` does not automatically recurse through in-tree `hostPath`
 volumes. To eliminate brittle manual host `chown` steps, workloads feature self-healing

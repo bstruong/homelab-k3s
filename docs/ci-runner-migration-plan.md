@@ -78,73 +78,76 @@ flowchart TD
 
 ### Phase 2: Deploy Self-Hosted Runner on Watchtower K3s
 
+> **Status (Option 1 manifests):** Shipped under
+> [`manifests/watchtower/github-runner/`](../manifests/watchtower/github-runner/).
+> Owner must still seal a **real** registration token and apply on Watchtower.
+> Agents must not invent tokens. Full seal/apply + DinD notes:
+> [`manifests/watchtower/github-runner/README.md`](../manifests/watchtower/github-runner/README.md).
+
 #### Step 1: Generate Registration Token
 1. Go to **Repository Settings** (or Account Settings for all repos) -> **Actions** -> **Runners** -> **New self-hosted runner**.
-2. Copy the token provided under the registration command.
+2. Copy the token provided under the registration command (expires ~1h).
 
 #### Step 2: Seal Runner Secrets
-Using the homelab secret workflow:
+Using the homelab secret workflow (`seal-generic` writes SealedSecret YAML to stdout):
 ```bash
-# In homelab-k3s workspace
+# In homelab-k3s workspace — paste the REAL token; do not invent one
 ./scripts/secrets.sh seal-generic github-runner-token infra \
   token="<GITHUB_RUNNER_REGISTRATION_TOKEN>" \
   > manifests/watchtower/github-runner/sealedsecret.yaml
+
+git add manifests/watchtower/github-runner/sealedsecret.yaml
+git commit -m "chore(github-runner): seal registration token"
 ```
 
-#### Step 3: Create Manifests (`manifests/watchtower/github-runner/`)
+#### Step 3: Manifests (`manifests/watchtower/github-runner/`)
 
-* **`deployment.yaml`**:
+Committed files (vs the sketch below):
+
+| File | Role |
+| --- | --- |
+| `deployment.yaml` | Option-1 Deployment (`myoung34/github-runner:ubuntu-noble`) |
+| `README.md` | Seal/apply runbook + Postgres/DinD spike |
+
+Deviations from the early sketch (intentional):
+
+* Env is **`LABELS`**, not `RUNNER_LABELS` (upstream image contract).
+* Labels use `app.kubernetes.io/name`.
+* **`START_DOCKER_SERVICE=true` + `privileged`** so Sapphire mutation Postgres
+  *service containers* work (Watchtower has no host `docker.sock`).
+* `infra` PSA `enforce: privileged` so the pod is admitted.
+* hostPath work dir `/mnt/appdata/ci-runner-work` → `/_work` (DinD path safety).
+* Cache env hints: `UV_CACHE_DIR`, `XDG_CACHE_HOME`, `NPM_CONFIG_CACHE` under `/cache`.
+* No ServiceAccount/RBAC (outbound HTTPS only).
+
+Sketch (authoritative YAML is in `deployment.yaml`):
 ```yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: github-runner-sapphire
-  namespace: infra
-spec:
-  replicas: 1
-  strategy:
-    type: Recreate
-  selector:
-    matchLabels:
-      app: github-runner-sapphire
-  template:
-    metadata:
-      labels:
-        app: github-runner-sapphire
-    spec:
-      containers:
-        - name: runner
-          image: myoung34/github-runner:ubuntu-noble
-          env:
-            - name: REPO_URL
-              value: "https://github.com/bstruong/sapphire"
-            - name: RUNNER_TOKEN
-              valueFrom:
-                secretKeyRef:
-                  name: github-runner-token
-                  key: token
-            - name: RUNNER_NAME
-              value: "watchtower-9700x-01"
-            - name: RUNNER_LABELS
-              value: "self-hosted,watchtower,x64,zen5"
-            - name: EPHEMERAL
-              value: "1"
-          resources:
-            requests:
-              cpu: "500m"
-              memory: "1Gi"
-            limits:
-              cpu: "12000m"      # Bursts up to 12 Zen 5 threads
-              memory: "12Gi"     # Uses a fraction of Watchtower's 24GB free RAM
-          volumeMounts:
-            - name: runner-cache
-              mountPath: /cache
-      volumes:
-        - name: runner-cache
-          hostPath:
-            path: /mnt/appdata/ci-cache
-            type: DirectoryOrCreate
+# see manifests/watchtower/github-runner/deployment.yaml
+# LABELS=self-hosted,watchtower,x64,zen5
+# resources: requests 500m/1Gi, limits 12000m/12Gi
+# hostPath: /mnt/appdata/ci-cache -> /cache
 ```
+
+#### Step 4: Apply on Watchtower (owner)
+
+```bash
+ssh watchtower 'sudo mkdir -p /mnt/appdata/ci-cache /mnt/appdata/ci-runner-work'
+./deploy.sh --dry-run github-runner
+./deploy.sh github-runner
+# Confirm Idle at https://github.com/bstruong/sapphire/settings/actions/runners
+```
+
+#### Postgres service containers (DinD spike)
+
+**Conclusion:** Job `services:` (Postgres) requires Docker on the runner.
+`myoung34/github-runner` without a Docker engine fails Job Services. Watchtower
+is k3s/containerd → no host socket → in-container dockerd via
+`START_DOCKER_SERVICE` + privileged is the Option-1 path.
+
+**Circuit breaker:** If DinD is unstable, drop workflow `services:` and point
+mutation at host/in-cluster Postgres via `TEST_DATABASE_URL` instead.
+
+**Not live-validated in the manifests PR** — no token sealed, no pod scheduled.
 
 ---
 
