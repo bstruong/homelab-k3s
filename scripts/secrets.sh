@@ -367,16 +367,16 @@ app_literals() {
       ;;
 
     github-runner)
-      # Owner-supplied GitHub registration token (or PAT). Never auto-generated.
+      # Owner-supplied durable PAT → ACCESS_TOKEN. Never auto-generated.
       # Prefer seal-generic so the value never sits in a prompt history file;
       # this path exists so `seal github-runner` / `check` / `list` stay aware.
       local token
-      token="$(prompt 'GitHub runner registration token (Settings → Actions → Runners).
-  Expires ~1h. Do not invent a value — paste the real token, or leave blank and
-  use: ./scripts/secrets.sh seal-generic github-runner-token infra token=...')"
+      token="$(prompt 'GitHub runner PAT (classic repo scope, or fine-grained runner admin).
+  Do not invent a value — paste a dedicated runner PAT, or leave blank and
+  use: ./scripts/secrets.sh seal-generic github-runner-token infra access-token=...')"
       if [[ -n "${token}" ]]; then
-        printf 'literal:token=%s\n' "${token}"
-        printf 'summary:GitHub runner token sealed (value not shown)\n'
+        printf 'literal:access-token=%s\n' "${token}"
+        printf 'summary:GitHub runner access-token sealed (value not shown)\n'
       fi
       ;;
   esac
@@ -522,7 +522,7 @@ beszel          monitoring   beszel-agent             hub-public-key
 paperless-ngx   docs         paperless-ngx            secret-key, admin-user,
                                                       admin-password
 registry        infra        registry-htpasswd        htpasswd
-github-runner   infra        github-runner-token      token (owner-supplied;
+github-runner   infra        github-runner-token      access-token (durable PAT;
                                                       use seal-generic)
 caster          caster       caster                   postgres-password,
                                                       secret-key-base

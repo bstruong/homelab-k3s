@@ -12,8 +12,9 @@
 #   - Private repos only. Never attach this runner to a public repository.
 #
 # Secret (owner must seal — never invent tokens):
-#   github-runner-token / key `token`  →  RUNNER_TOKEN (registration token)
-# Prefer a durable PAT mapped as ACCESS_TOKEN; see README.md.
+#   github-runner-token / key `access-token`  →  ACCESS_TOKEN (durable PAT)
+# Short-lived registration tokens (RUNNER_TOKEN / key `token`) die under
+# EPHEMERAL=1; see README.md.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -77,14 +78,14 @@ spec:
               value: "https://github.com/bstruong/sapphire"
             - name: RUNNER_SCOPE
               value: "repo"
-            # Registration token from sealed secret. Short-lived (~1h).
-            # For EPHEMERAL restarts, reseal a fresh token or switch to ACCESS_TOKEN
-            # (documented in README.md). Do not invent a placeholder value.
-            - name: RUNNER_TOKEN
+            # Durable PAT (classic repo scope, or fine-grained with runner admin).
+            # Upstream uses ACCESS_TOKEN to mint a fresh registration token on
+            # every EPHEMERAL start. Do not invent a placeholder value.
+            - name: ACCESS_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: github-runner-token
-                  key: token
+                  key: access-token
             - name: RUNNER_NAME
               value: "watchtower-9700x-01"
             # Upstream image env is LABELS (not RUNNER_LABELS).
