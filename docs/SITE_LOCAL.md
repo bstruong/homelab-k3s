@@ -8,7 +8,7 @@ This repository is **public**. Manifests and scripts use [RFC 5737](https://www.
 | `192.0.2.11` | Secondary LAN host (e.g. workstation) |
 | `192.0.2.1` | LAN default gateway / DNS upstream example |
 | `192.0.2.0` | LAN subnet example (`192.0.2.0/24`) |
-| `00:00:5E:00:53:00` | Documentation NIC MAC |
+| `<MAC_ADDRESS>` | Documentation NIC MAC placeholder |
 
 Before applying to a real cluster, substitute your site values **locally** and do **not** commit them:
 

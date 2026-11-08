@@ -373,16 +373,18 @@ EOF'
 ---
 
 ### Step 7: Host Network Security Hardening (`firewalld` & LLMNR)
-Execute the host security reconciliation script to restrict the LAN attack surface, trust internal CNI routing (`10.42.0.0/16`), and disable LLMNR:
+Execute the host security reconciliation script, then the Tailscale zone script. Order matters: reconcile owns LAN + CNI trust; `firewall-tailscale.sh` is the sole Tailscale firewalld owner.
 ```bash
 ssh watchtower "
   sudo ${HOME}/homelab-k3s/scripts/reconcile-host-security.sh
+  sudo ${HOME}/homelab-k3s/scripts/firewall-tailscale.sh
 "
 ```
 This ensures:
 1. `firewalld` permits only `ssh` (22), `dns` (53 tcp/udp), `http` (80), `https` (443), and `cockpit` (9090) from the LAN.
-2. In-cluster CNI (`cni0` `10.42.0.0/16`) and `tailscale0` are assigned to the `trusted` zone.
-3. LLMNR (port 5355 tcp/udp) is disabled in `systemd-resolved` to prevent LAN spoofing / Responder poisoning attacks.
+2. In-cluster CNI (`cni0` and source `10.42.0.0/16`) is assigned to the `trusted` zone. `tailscale0` is **not** trusted wholesale.
+3. `firewall-tailscale.sh` places `tailscale0` in a dedicated `tailscale` zone allowing only `ssh` + `80/tcp` + `443/tcp` (Cockpit and raw `:8080` stay off Tailnet).
+4. LLMNR (port 5355 tcp/udp) is disabled in `systemd-resolved` to prevent LAN spoofing / Responder poisoning attacks.
 
 ---
 

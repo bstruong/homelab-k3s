@@ -25,7 +25,7 @@ docs/ci-runner-migration-plan.md  self-hosted GitHub Actions runners plan (Ryzen
 scripts/secrets.sh        generate + seal / seal-generic (or apply) credentials
 scripts/jarvis-*.sh       wake / sleep / status / lease for JARVIS
 scripts/install-tailscale.sh / firewall-tailscale.sh / harden-sshd.sh
-scripts/reconcile-host-security.sh  LLMNR + firewalld baseline (trusts tailscale0)
+scripts/reconcile-host-security.sh  LLMNR + LAN/CNI firewalld baseline (no tailscale0 trust)
 scripts/bootstrap-sealed-secrets.sh
 scripts/install-hooks.sh  pre-commit guard against committing secrets
 deploy.sh                 apply + validate
