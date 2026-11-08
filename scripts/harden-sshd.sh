@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # SSH hardening drop-in for Watchtower. Key-only, no root login over SSH.
 # Run: sudo bash harden-sshd.sh
-# Ensure your ed25519 key works (ssh watchtower-lan) BEFORE running — password auth is disabled.
+# Ensure your ed25519 key works (a second session (LAN SSH)) BEFORE running — password auth is disabled.
 set -euo pipefail
 
 if [[ $(id -u) -ne 0 ]]; then
@@ -30,4 +30,4 @@ else
   echo "✓ Wrote $dropin (sshd not listening on :22 yet; will apply on next start)"
 fi
 
-echo "Verify from another session: ssh -o BatchMode=yes watchtower-lan true"
+echo "Verify from another session before you disconnect."

@@ -9,7 +9,7 @@ spec:
   entryPoints: ["web"]
   routes:
     - kind: Rule
-      match: Host(`ai.watchtower.local`) || Host(`watchtower`) || Host(`watchtower`)
+      match: Host(`ai.watchtower.local`) || Host(`watchtower`)
       services:
         - name: jarvis
           port: 8080
@@ -23,7 +23,7 @@ spec:
   entryPoints: ["websecure"]
   routes:
     - kind: Rule
-      match: Host(`ai.watchtower.local`) || Host(`watchtower`) || Host(`watchtower`)
+      match: Host(`ai.watchtower.local`) || Host(`watchtower`)
       services:
         - name: jarvis
           port: 8080

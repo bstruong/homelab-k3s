@@ -1,16 +1,17 @@
 # Off-LAN Tailscale (Watchtower host)
 
-Operator narrative lives in [fleet off-lan-tailscale.md](https://github.com/bstruong/fleet/blob/main/machines/watchtower/off-lan-tailscale.md).
+Operator narrative (private): fleet `machines/watchtower/off-lan-tailscale.md`.
 
-Host scripts in this repo (run on Watchtower with sudo, from a LAN/console session):
+Host scripts in this repo (run on Watchtower with sudo, from a LAN/console session while key auth still works):
 
 ```bash
 sudo bash scripts/install-tailscale.sh
 sudo bash scripts/firewall-tailscale.sh
-# confirm key auth still works, then:
 sudo bash scripts/harden-sshd.sh
 ```
 
-JARVIS mesh URL is Traefik `http://watchtower/v1` (IngressRoute Host match) — not hostPort `:8080`.
+JARVIS over the mesh uses Traefik with `Host(watchtower)` (MagicDNS short name) — not the localhost-only hostPort on `:8080`.
 
-Related: `scripts/reconcile-host-security.sh` already trusts `tailscale0` for the broader firewall posture.
+`scripts/reconcile-host-security.sh` already trusts the Tailscale interface for the broader firewall posture.
+
+Do **not** commit Tailscale auth keys, operator usernames, tailnet FQDNs (`*.ts.net`), or LAN addresses into this public repository.
