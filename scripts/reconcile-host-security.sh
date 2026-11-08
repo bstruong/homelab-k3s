@@ -7,7 +7,8 @@
 # Codifies:
 # 1. LLMNR disablement on systemd-resolved (closes 5355/tcp+udp wildcard sockets).
 # 2. Watchtower firewalld rules (restricts LAN to 22, 53, 80, 443, 9090 while
-#    trusting cni0 10.42.0.0/16 and tailscale0).
+#    trusting cni0 and source 10.42.0.0/16). Does NOT trust or bind tailscale0 —
+#    Tailscale firewalld ownership lives in scripts/firewall-tailscale.sh.
 # 3. Metrotower Docker daemon default IP binding (127.0.0.1) to eliminate UFW bypass.
 # ==============================================================================
 
@@ -56,10 +57,10 @@ if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewa
   firewall-cmd --permanent --add-port=53/tcp >/dev/null 2>&1 || true
   firewall-cmd --permanent --add-port=53/udp >/dev/null 2>&1 || true
   
-  # Ensure internal cluster CNI (10.42.0.0/16) and tailscale0 are trusted
+  # Ensure internal cluster CNI (cni0 / 10.42.0.0/16) is trusted.
+  # Do not add tailscale0 here — scripts/firewall-tailscale.sh owns that zone.
   firewall-cmd --permanent --zone=trusted --add-source=10.42.0.0/16 >/dev/null 2>&1 || true
   firewall-cmd --permanent --zone=trusted --add-interface=cni0 >/dev/null 2>&1 || true
-  firewall-cmd --permanent --zone=trusted --add-interface=tailscale0 >/dev/null 2>&1 || true
   
   # Remove direct LAN exposure of high k3s nodeports or internal ports if present
   for p in 8080/tcp 8880/tcp 8882/tcp 8888/tcp 6443/tcp 10250/tcp 45876/tcp; do

@@ -8,7 +8,12 @@
 # 1. Local listening ports & LLMNR state (ss -tuln).
 # 2. Local firewall posture (ufw / firewalld / docker bypass).
 # 3. Watchtower LAN exposure (cross-LAN probe from workstation).
-# 4. K3s cluster segmentation & NetworkPolicy enforcement.
+# 4. Optional Watchtower Tailnet exposure (WATCHTOWER_TS_IP or auto-detect).
+# 5. K3s cluster segmentation & NetworkPolicy enforcement.
+#
+# Tailnet probes: set WATCHTOWER_TS_IP to Watchtower's Tailscale IPv4, or leave
+# unset to attempt `tailscale ip -4 watchtower`. If neither yields an address,
+# the Tailnet section is skipped with a note (never false-PASS).
 # ==============================================================================
 
 set -euo pipefail
@@ -18,8 +23,10 @@ info()  { printf '%b==>%b %s\n' "${BLUE}" "${NC}" "$*"; }
 ok()    { printf '  %b[PASS]%b %s\n' "${GREEN}" "${NC}" "$*"; }
 fail()  { printf '  %b[FAIL]%b %s\n' "${RED}"   "${NC}" "$*"; }
 warn()  { printf '  %b[WARN]%b %s\n' "${YELLOW}" "${NC}" "$*"; }
+skip()  { printf '  %b[SKIP]%b %s\n' "${YELLOW}" "${NC}" "$*"; }
 
 WATCHTOWER_IP="${WATCHTOWER_IP:-192.0.2.10}"
+WATCHTOWER_TS_IP="${WATCHTOWER_TS_IP:-}"
 FAILURES=0
 
 echo "=================================================================="
@@ -115,7 +122,81 @@ for item in "${EXPECTED_BLOCKED[@]}"; do
 done
 
 # -------------------------------------------------------------------------
-# 3. Kubernetes NetworkPolicy & Workload Drift Audit
+# 3. Watchtower Tailnet Exposure Audit (optional)
+# -------------------------------------------------------------------------
+echo
+info "Auditing Watchtower Tailnet Exposure"
+
+resolve_watchtower_ts_ip() {
+  if [[ -n "${WATCHTOWER_TS_IP}" ]]; then
+    printf '%s\n' "${WATCHTOWER_TS_IP}"
+    return 0
+  fi
+  # Auto-detect peer "watchtower" via Tailscale CLI (not this host's own IP).
+  if command -v tailscale >/dev/null 2>&1; then
+    local detected=""
+    detected="$(tailscale ip -4 watchtower 2>/dev/null | head -n1 || true)"
+    if [[ -n "${detected}" && "${detected}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+      printf '%s\n' "${detected}"
+      return 0
+    fi
+  fi
+  return 1
+}
+
+probe_ts_port() {
+  local host="$1"
+  local port="$2"
+  timeout 1 bash -c "</dev/tcp/${host}/${port}" 2>/dev/null
+}
+
+# Must stay closed on Tailnet (same high-risk set as LAN blocked, minus nothing
+# intentional). Cockpit 9090 is LAN-only and must also stay closed on Tailnet.
+TS_EXPECTED_BLOCKED=(
+  "5355:LLMNR"
+  "6443:K3s API Server"
+  "8080:llama-server (loopback hostPort / not published on Tailnet)"
+  "8880:Dojo Static Server"
+  "8882:Ruby Dojo"
+  "8888:Python Dojo"
+  "10250:Kubelet API"
+  "45876:Beszel Agent"
+  "9090:Cockpit (LAN-only)"
+)
+
+# Must stay open on Tailnet after Phase 2 firewall-tailscale.sh (ssh + Traefik).
+TS_EXPECTED_OPEN=(
+  "22:SSH"
+  "80:Traefik HTTP"
+  "443:Traefik HTTPS"
+)
+
+if TS_TARGET="$(resolve_watchtower_ts_ip)"; then
+  info "Probing Tailnet target ${TS_TARGET} (WATCHTOWER_TS_IP or auto-detect)"
+  for item in "${TS_EXPECTED_OPEN[@]}"; do
+    IFS=':' read -r port desc <<< "${item}"
+    if probe_ts_port "${TS_TARGET}" "${port}"; then
+      ok "Tailnet port ${port} (${desc}) is OPEN as expected"
+    else
+      fail "Tailnet port ${port} (${desc}) is CLOSED or unreachable"
+      FAILURES=$((FAILURES + 1))
+    fi
+  done
+  for item in "${TS_EXPECTED_BLOCKED[@]}"; do
+    IFS=':' read -r port desc <<< "${item}"
+    if probe_ts_port "${TS_TARGET}" "${port}"; then
+      fail "Tailnet port ${port} (${desc}) is OPEN! Should be blocked by Tailscale zone/ACLs."
+      FAILURES=$((FAILURES + 1))
+    else
+      ok "Tailnet port ${port} (${desc}) is protected / blocked"
+    fi
+  done
+else
+  skip "WATCHTOWER_TS_IP unset and Tailscale IPv4 not auto-detected — skipping Tailnet probes (not a PASS)"
+fi
+
+# -------------------------------------------------------------------------
+# 4. Kubernetes NetworkPolicy & Workload Drift Audit
 # -------------------------------------------------------------------------
 echo
 info "Auditing K3s Cluster Segmentation (NetworkPolicy & Namespaces)"
