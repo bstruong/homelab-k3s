@@ -1,3 +1,4 @@
+# MagicDNS Host(watchtower) so mesh clients need no ai.watchtower.local DNS.
 # Former ai.watchtower.local route for alpha-llama now points at JARVIS.
 apiVersion: traefik.io/v1alpha1
 kind: IngressRoute
@@ -8,7 +9,7 @@ spec:
   entryPoints: ["web"]
   routes:
     - kind: Rule
-      match: Host(`ai.watchtower.local`)
+      match: Host(`ai.watchtower.local`) || Host(`watchtower`) || Host(`watchtower`)
       services:
         - name: jarvis
           port: 8080
@@ -22,7 +23,7 @@ spec:
   entryPoints: ["websecure"]
   routes:
     - kind: Rule
-      match: Host(`ai.watchtower.local`)
+      match: Host(`ai.watchtower.local`) || Host(`watchtower`) || Host(`watchtower`)
       services:
         - name: jarvis
           port: 8080
