@@ -18,9 +18,12 @@ manifests/
   metrotower/             (empty — second node, not yet in use)
 docs/SECRETS.md           every credential, how it is created, how to rotate it
 docs/jarvis.md            shared LLM inference (sleepy-warm router)
+docs/off-lan-tailscale.md host Tailscale + firewall/sshd for coffee-shop access
 docs/ci-runner-migration-plan.md  self-hosted GitHub Actions runners plan (Ryzen 7 9700X)
 scripts/secrets.sh        generate + seal / seal-generic (or apply) credentials
 scripts/jarvis-*.sh       wake / sleep / status / lease for JARVIS
+scripts/install-tailscale.sh / firewall-tailscale.sh / harden-sshd.sh
+scripts/reconcile-host-security.sh  LLMNR + firewalld baseline (trusts tailscale0)
 scripts/bootstrap-sealed-secrets.sh
 scripts/install-hooks.sh  pre-commit guard against committing secrets
 deploy.sh                 apply + validate
