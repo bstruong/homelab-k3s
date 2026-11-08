@@ -183,3 +183,7 @@ once at container start.
 4. If the sealed-secrets private key itself is exposed, rotate the controller's
    keypair and re-seal everything; the committed ciphertext must be considered
    readable.
+
+## Site inventory
+
+LAN IPs, MACs, and tailnet FQDNs are out of scope for this public repo — see [SITE_LOCAL.md](./SITE_LOCAL.md).

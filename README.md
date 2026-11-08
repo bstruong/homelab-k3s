@@ -9,6 +9,8 @@ encrypted with [sealed-secrets](https://github.com/bitnami-labs/sealed-secrets)
 before they are committed, and a pre-commit hook blocks plaintext ones. See
 [docs/SECRETS.md](docs/SECRETS.md).
 
+Site-specific LAN addresses use documentation placeholders — see [docs/SITE_LOCAL.md](docs/SITE_LOCAL.md).
+
 ## Layout
 
 ```
