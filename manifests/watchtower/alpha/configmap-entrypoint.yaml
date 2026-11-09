@@ -1,0 +1,142 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alpha-runner-entrypoint
+  namespace: alpha
+  labels:
+    app.kubernetes.io/name: alpha-runner
+data:
+  entrypoint.sh: |
+    #!/usr/bin/env bash
+    # Alpha campaign Job entrypoint (Watchtower). Writes artifacts to PVC; ntfy on exit.
+    set -euo pipefail
+
+    DATA="${ALPHA_DATA_ROOT:-/data}"
+    ARTIFACTS="${ALPHA_ARTIFACT_ROOT:-${DATA}/artifacts}"
+    SRC="${ALPHA_SRC_ROOT:-${DATA}/src}"
+    ALPHA_DIR="${SRC}/alpha"
+    LAB_DIR="${SRC}/alpha-lab"
+    HOMELAB_DIR="${SRC}/homelab-k3s"
+
+    ALPHA_REPO="${ALPHA_REPO:-https://github.com/bstruong/alpha.git}"
+    LAB_REPO="${ALPHA_LAB_REPO:-https://github.com/bstruong/alpha-lab.git}"
+    HOMELAB_REPO="${HOMELAB_K3S_REPO:-https://github.com/bstruong/homelab-k3s.git}"
+    ALPHA_REF="${ALPHA_GIT_REF:-main}"
+    LAB_REF="${ALPHA_LAB_GIT_REF:-main}"
+    HOMELAB_REF="${HOMELAB_GIT_REF:-main}"
+
+    CAMPAIGN_FROM="${ALPHA_CAMPAIGN_FROM:-ruby}"
+    CAMPAIGN_SCRIPT="${ALPHA_CAMPAIGN_SCRIPT:-scripts/run_capability_map_v2.sh}"
+    NTFY_URL="${ALPHA_NTFY_URL:-http://ntfy.monitoring.svc.cluster.local:8080}"
+    NTFY_TOPIC="${ALPHA_NTFY_TOPIC:-alpha-campaigns}"
+    JOB_NAME="${JOB_NAME:-alpha-campaign}"
+    STATUS="FAILED"
+    EXIT_CODE=1
+
+    mkdir -p "${ARTIFACTS}"/{results/runs,results/logs,qualifications,reports} \
+             "${SRC}"
+
+    notify() {
+      local status="$1" body="$2"
+      if [[ "${ALPHA_NTFY:-1}" != "1" ]]; then
+        return 0
+      fi
+      local -a curl_auth=()
+      if [[ -n "${ALPHA_NTFY_TOKEN:-}" ]]; then
+        curl_auth=(-H "Authorization: Bearer ${ALPHA_NTFY_TOKEN}")
+      fi
+      curl -fsS \
+        "${curl_auth[@]}" \
+        -H "Title: Alpha campaign ${status}" \
+        -H "Tags: ${status}," \
+        -d "${body}" \
+        "${NTFY_URL%/}/${NTFY_TOPIC}" \
+        || echo "warn: ntfy post failed" >&2
+    }
+
+    on_exit() {
+      local code=$?
+      EXIT_CODE="${code}"
+      if [[ "${code}" -eq 0 ]]; then
+        STATUS="OK"
+      else
+        STATUS="FAILED"
+      fi
+      local body
+      body="$(printf 'Job: %s\nStatus: %s (exit %s)\nFROM: %s\nArtifacts: /mnt/appdata/alpha/artifacts\nReview: ssh watchtower -> /mnt/appdata/alpha/artifacts/reports\n' \
+        "${JOB_NAME}" "${STATUS}" "${EXIT_CODE}" "${CAMPAIGN_FROM}")"
+      notify "${STATUS}" "${body}"
+      exit "${code}"
+    }
+    trap on_exit EXIT
+
+    sync_repo() {
+      local url="$1" dir="$2" ref="$3"
+      # Host-seeded worktrees (rsync into /mnt/appdata/alpha/src) skip fetch.
+      if [[ "${ALPHA_GIT_SYNC:-1}" == "0" || -f "${dir}/.skip-git-sync" ]]; then
+        if [[ -d "${dir}" ]]; then
+          echo "==> keeping local ${dir} (git sync skipped)"
+          return 0
+        fi
+        echo "fail: ${dir} missing and ALPHA_GIT_SYNC=0" >&2
+        return 1
+      fi
+      if [[ -d "${dir}/.git" ]]; then
+        git -C "${dir}" fetch --depth 1 origin "${ref}"
+        git -C "${dir}" checkout -B "${ref}" "FETCH_HEAD"
+      else
+        rm -rf "${dir}"
+        git clone --depth 1 --branch "${ref}" "${url}" "${dir}" \
+          || git clone --depth 1 "${url}" "${dir}"
+        git -C "${dir}" checkout "${ref}" 2>/dev/null || true
+      fi
+    }
+
+    echo "==> syncing repos (alpha=${ALPHA_REF} lab=${LAB_REF} homelab=${HOMELAB_REF} sync=${ALPHA_GIT_SYNC:-1})"
+    sync_repo "${ALPHA_REPO}" "${ALPHA_DIR}" "${ALPHA_REF}"
+    sync_repo "${LAB_REPO}" "${LAB_DIR}" "${LAB_REF}"
+    sync_repo "${HOMELAB_REPO}" "${HOMELAB_DIR}" "${HOMELAB_REF}"
+
+    # Prefer image-baked Pi harness; otherwise npm ci into the worktree.
+    if [[ -x /opt/pi-harness/node_modules/.bin/pi ]]; then
+      export PI_BIN=/opt/pi-harness/node_modules/.bin/pi
+      mkdir -p "${ALPHA_DIR}/harness/pi"
+      if [[ ! -e "${ALPHA_DIR}/harness/pi/node_modules" ]]; then
+        ln -sfn /opt/pi-harness/node_modules "${ALPHA_DIR}/harness/pi/node_modules" \
+          || echo "warn: could not link harness/pi/node_modules (using PI_BIN=${PI_BIN})"
+      fi
+    elif [[ -f "${ALPHA_DIR}/harness/pi/package.json" && ! -x "${ALPHA_DIR}/harness/pi/node_modules/.bin/pi" ]]; then
+      echo "==> npm ci harness/pi"
+      (cd "${ALPHA_DIR}/harness/pi" && npm ci --omit=dev)
+    fi
+    export PI_BIN="${PI_BIN:-${ALPHA_DIR}/harness/pi/node_modules/.bin/pi}"
+
+    export HOMELAB_K3S="${HOMELAB_DIR}"
+    export ALPHA_LAB_ROOT="${LAB_DIR}"
+    export ALPHA_ARTIFACT_ROOT="${ARTIFACTS}"
+    export ALPHA_PROMOTE_LAB="${ALPHA_PROMOTE_LAB:-0}"
+    export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://jarvis.jarvis.svc.cluster.local:8080/v1}"
+    export ALPHA_CAMPAIGN_FROM="${CAMPAIGN_FROM}"
+    export ALPHA_JARVIS_DOWN_AFTER="${ALPHA_JARVIS_DOWN_AFTER:-1}"
+    export JARVIS_LEASE_HOLDER="${JARVIS_LEASE_HOLDER:-alpha-campaign}"
+    export ALPHA_CHROME_PATH="${ALPHA_CHROME_PATH:-/usr/bin/chromium}"
+    export PATH="/usr/local/bundle/bin:${PATH}"
+
+    # Symlink artifact dirs into the Alpha tree so bin/alpha paths stay normal.
+    cd "${ALPHA_DIR}"
+    mkdir -p "${ARTIFACTS}/results/logs" "${ARTIFACTS}/qualifications" "${ARTIFACTS}/reports"
+    for sub in results qualifications reports; do
+      if [[ -L "${sub}" || -e "${sub}" ]]; then
+        rm -rf "${sub}"
+      fi
+      ln -sfn "${ARTIFACTS}/${sub}" "${sub}"
+    done
+    # results -> ARTIFACTS/results already covers results/logs; do not nest a symlink.
+
+    echo "==> doctor"
+    bin/alpha doctor || true
+
+    echo "==> campaign ${CAMPAIGN_SCRIPT} FROM=${CAMPAIGN_FROM}"
+    bash "${CAMPAIGN_SCRIPT}"
+    echo "==> campaign finished OK"

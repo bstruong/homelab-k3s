@@ -1,0 +1,113 @@
+---
+# Suspended CronJob used only as a Job template:
+#   kubectl -n alpha create job alpha-campaign-$(date -u +%Y%m%dT%H%M%SZ) \
+#     --from=cronjob/alpha-campaign
+#
+# Prefer Alpha repo helper: scripts/alpha_watchtower_kick.sh
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: alpha-campaign
+  namespace: alpha
+  labels:
+    app.kubernetes.io/name: alpha-runner
+spec:
+  suspend: true
+  schedule: "0 0 1 1 *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/name: alpha-runner
+        spec:
+          serviceAccountName: alpha-runner
+          restartPolicy: Never
+          nodeSelector:
+            kubernetes.io/hostname: watchtower
+          # Pod-scoped pull auth (avoids depending on node registries.yaml alone).
+          imagePullSecrets:
+            - name: registry-pull
+          securityContext:
+            # Match host PVC owner (btruong uid/gid 1000). With capabilities
+            # dropped, root cannot bypass DAC on 0755 dirs owned by 1000.
+            fsGroup: 1000
+            runAsUser: 1000
+            runAsGroup: 1000
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: campaign
+              image: registry.watchtower.local/alpha-runner:latest
+              imagePullPolicy: Always
+              command: ["/bin/bash", "/entrypoint/entrypoint.sh"]
+              env:
+                - name: JOB_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+                - name: ALPHA_CAMPAIGN_FROM
+                  value: "ruby"
+                - name: ALPHA_PROMOTE_LAB
+                  value: "0"
+                - name: ALPHA_NTFY
+                  value: "1"
+                - name: ALPHA_NTFY_TOPIC
+                  value: "alpha-campaigns"
+                - name: ALPHA_NTFY_URL
+                  value: "http://ntfy.monitoring.svc.cluster.local:8080"
+                - name: ALPHA_NTFY_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: alpha-ntfy
+                      key: token
+                - name: OPENAI_BASE_URL
+                  value: "http://jarvis.jarvis.svc.cluster.local:8080/v1"
+                - name: ALPHA_CHROME_PATH
+                  value: "/usr/bin/chromium"
+                - name: ALPHA_GIT_REF
+                  value: "main"
+                - name: ALPHA_LAB_GIT_REF
+                  value: "main"
+                - name: HOMELAB_GIT_REF
+                  value: "main"
+                - name: JARVIS_LEASE_HOLDER
+                  value: "alpha-campaign"
+                - name: JARVIS_LEASE_MINUTES
+                  value: "240"
+                - name: ALPHA_JARVIS_DOWN_AFTER
+                  value: "1"
+              volumeMounts:
+                - name: data
+                  mountPath: /data
+                - name: entrypoint
+                  mountPath: /entrypoint
+                  readOnly: true
+              resources:
+                requests:
+                  cpu: "500m"
+                  memory: 2Gi
+                limits:
+                  cpu: "6"
+                  memory: 12Gi
+              securityContext:
+                allowPrivilegeEscalation: false
+                runAsNonRoot: true
+                runAsUser: 1000
+                runAsGroup: 1000
+                capabilities:
+                  drop: ["ALL"]
+                # Chromium: CHROMIUM_FLAGS includes --no-sandbox for this uid.
+          volumes:
+            - name: data
+              persistentVolumeClaim:
+                claimName: alpha-data
+            - name: entrypoint
+              configMap:
+                name: alpha-runner-entrypoint
+                defaultMode: 0755
