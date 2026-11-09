@@ -23,7 +23,9 @@ docs/jarvis.md            shared LLM inference (sleepy-warm router)
 docs/off-lan-tailscale.md host Tailscale + firewall/sshd for coffee-shop access
 docs/ci-runner-migration-plan.md  self-hosted GitHub Actions runners plan (Ryzen 7 9700X)
 scripts/secrets.sh        generate + seal / seal-generic (or apply) credentials
-scripts/jarvis-*.sh       wake / sleep / status / lease for JARVIS
+scripts/jarvis-*.sh       wake / sleep / status / session / lease for JARVIS
+docs/jarvis.md            sleepy-warm inference + native Lease
+docs/alpha-jarvis-session-contract.md  Alpha cutover interface (Phase 4)
 scripts/install-tailscale.sh / firewall-tailscale.sh / harden-sshd.sh
 scripts/reconcile-host-security.sh  LLMNR + LAN/CNI firewalld baseline (no tailscale0 trust)
 scripts/bootstrap-sealed-secrets.sh
@@ -146,6 +148,7 @@ The exceptions, each documented at the top of its manifest:
 | Beszel agent | host `/proc`, `/sys`, `/etc` mounts | node metrics — still non-root and read-only, via gopsutil's `HOST_*` vars |
 | JARVIS | root + `IPC_LOCK`; PSA `privileged`; no read-only rootfs; `hostPort` 8080 on `127.0.0.1` | `load-mode=mlock` needs `IPC_LOCK` (baseline PSA forbids it); upstream `llama.cpp:server-cuda` defaults to uid 0 (optional non-root CUDA not validated for this digest); CUDA scratch needs a writable root; loopback `hostPort` serves node-local `OPENAI_BASE_URL` clients without LAN bind |
 | GitHub runner | root + `privileged`; `infra` PSA `privileged`; `START_DOCKER_SERVICE` | Actions Postgres service containers need dockerd; Watchtower has no host `docker.sock` (k3s/containerd), so DinD runs in-process |
+| Alpha campaign | PSA `privileged` ceiling; pod `seccomp`/`AppArmor` `Unconfined` | Phase 2 bubblewrap needs unprivileged user namespaces; RuntimeDefault/baseline PSA block `clone(CLONE_NEWUSER)`. Pods remain non-root with capabilities dropped |
 
 **Host volume ownership.** `fsGroup` does not automatically recurse through in-tree `hostPath`
 volumes. To eliminate brittle manual host `chown` steps, workloads feature self-healing

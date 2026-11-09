@@ -9,7 +9,9 @@ metadata:
 data:
   entrypoint.sh: |
     #!/usr/bin/env bash
-    # Alpha campaign Job entrypoint (Watchtower). Writes artifacts to PVC; ntfy on exit.
+    # Alpha campaign Job entrypoint (Watchtower).
+    # Owns JARVIS session (acquire/wake/heartbeat/release/scale-down) once around
+    # the campaign. Laptops must not heartbeat or keep this process alive.
     set -euo pipefail
 
     DATA="${ALPHA_DATA_ROOT:-/data}"
@@ -31,8 +33,11 @@ data:
     NTFY_URL="${ALPHA_NTFY_URL:-http://ntfy.monitoring.svc.cluster.local:8080}"
     NTFY_TOPIC="${ALPHA_NTFY_TOPIC:-alpha-campaigns}"
     JOB_NAME="${JOB_NAME:-alpha-campaign}"
+    POD_NAME="${POD_NAME:-}"
     STATUS="FAILED"
     EXIT_CODE=1
+    HB_PID=""
+    SESSION_STARTED=0
 
     mkdir -p "${ARTIFACTS}"/{results/runs,results/logs,qualifications,reports} \
              "${SRC}"
@@ -58,14 +63,24 @@ data:
     on_exit() {
       local code=$?
       EXIT_CODE="${code}"
+      if [[ -n "${HB_PID}" ]]; then
+        kill "${HB_PID}" 2>/dev/null || true
+        wait "${HB_PID}" 2>/dev/null || true
+        HB_PID=""
+      fi
+      if [[ "${SESSION_STARTED}" -eq 1 && -x "${HOMELAB_DIR}/scripts/jarvis-session.sh" ]]; then
+        echo "==> jarvis-session end"
+        "${HOMELAB_DIR}/scripts/jarvis-session.sh" end || true
+        SESSION_STARTED=0
+      fi
       if [[ "${code}" -eq 0 ]]; then
         STATUS="OK"
       else
         STATUS="FAILED"
       fi
       local body
-      body="$(printf 'Job: %s\nStatus: %s (exit %s)\nFROM: %s\nArtifacts: /mnt/appdata/alpha/artifacts\nReview: ssh watchtower -> /mnt/appdata/alpha/artifacts/reports\n' \
-        "${JOB_NAME}" "${STATUS}" "${EXIT_CODE}" "${CAMPAIGN_FROM}")"
+      body="$(printf 'Job: %s\nPod: %s\nRun: %s\nStatus: %s (exit %s)\nFROM: %s\nArtifacts: /mnt/appdata/alpha/artifacts\nReview: ssh watchtower -> /mnt/appdata/alpha/artifacts/reports\n' \
+        "${JOB_NAME}" "${POD_NAME:-unknown}" "${JARVIS_SESSION_RUN_ID:-none}" "${STATUS}" "${EXIT_CODE}" "${CAMPAIGN_FROM}")"
       notify "${STATUS}" "${body}"
       exit "${code}"
     }
@@ -118,10 +133,32 @@ data:
     export ALPHA_PROMOTE_LAB="${ALPHA_PROMOTE_LAB:-0}"
     export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://jarvis.jarvis.svc.cluster.local:8080/v1}"
     export ALPHA_CAMPAIGN_FROM="${CAMPAIGN_FROM}"
-    export ALPHA_JARVIS_DOWN_AFTER="${ALPHA_JARVIS_DOWN_AFTER:-1}"
+    # Campaign scripts may still call jarvis-up/lease; they must not scale down.
+    # Entrypoint owns final jarvis-session end → scale-to-zero.
+    export ALPHA_JARVIS_DOWN_AFTER="${ALPHA_JARVIS_DOWN_AFTER:-0}"
     export JARVIS_LEASE_HOLDER="${JARVIS_LEASE_HOLDER:-alpha-campaign}"
+    export JARVIS_LEASE_MINUTES="${JARVIS_LEASE_MINUTES:-240}"
+    export JARVIS_SESSION_RUN_ID="${JARVIS_SESSION_RUN_ID:-${JOB_NAME}}"
+    export JARVIS_LEASE_DUAL_READ="${JARVIS_LEASE_DUAL_READ:-1}"
     export ALPHA_CHROME_PATH="${ALPHA_CHROME_PATH:-/usr/bin/chromium}"
     export PATH="/usr/local/bundle/bin:${PATH}"
+
+    if [[ ! -x "${HOMELAB_DIR}/scripts/jarvis-session.sh" ]]; then
+      echo "fail: ${HOMELAB_DIR}/scripts/jarvis-session.sh missing after sync" >&2
+      exit 1
+    fi
+
+    echo "==> jarvis-session begin holder=${JARVIS_LEASE_HOLDER} ttl=${JARVIS_LEASE_MINUTES}m run-id=${JARVIS_SESSION_RUN_ID}"
+    "${HOMELAB_DIR}/scripts/jarvis-session.sh" begin \
+      "${JARVIS_LEASE_HOLDER}" \
+      "${JARVIS_LEASE_MINUTES}" \
+      "${JARVIS_SESSION_RUN_ID}"
+    SESSION_STARTED=1
+
+    HB_SECS="${JARVIS_SESSION_HEARTBEAT_SECONDS:-60}"
+    "${HOMELAB_DIR}/scripts/jarvis-session.sh" heartbeat-loop "${HB_SECS}" &
+    HB_PID=$!
+    echo "==> heartbeat pid=${HB_PID} interval=${HB_SECS}s"
 
     # Symlink artifact dirs into the Alpha tree so bin/alpha paths stay normal.
     cd "${ALPHA_DIR}"

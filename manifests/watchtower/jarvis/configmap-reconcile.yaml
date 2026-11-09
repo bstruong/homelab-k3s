@@ -1,0 +1,242 @@
+# Mounted by jarvis-idle-sleep CronJob. Keep in sync with scripts/jarvis-reconcile-idle.sh.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jarvis-idle-reconcile
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+data:
+  jarvis-reconcile-idle.sh: |
+    #!/usr/bin/env bash
+    # Safety reconciler for JARVIS sleepy-warm policy.
+    #
+    # NOT a primary lifecycle owner. Campaign Jobs own acquire/wake/heartbeat/release
+    # via jarvis-session.sh. This script only:
+    #   1) refreshes last-activity from inference metrics when replicas>0
+    #   2) expires stale Lease holders (renewTime + duration elapsed)
+    #   3) scales to 0 when idle past IDLE_TTL_MINUTES with no live holder
+    #
+    # Fail-safe: unreachable /v1/models or /metrics MUST exit 0 without scale-down.
+    set -euo pipefail
+    
+    NS="${JARVIS_NAMESPACE:-jarvis}"
+    DEP="${JARVIS_DEPLOYMENT:-jarvis}"
+    LEASE="${JARVIS_LEASE_NAME:-jarvis-gpu}"
+    CM="${JARVIS_LEASE_CM:-jarvis-lease}"
+    DUAL_READ="${JARVIS_LEASE_DUAL_READ:-1}"
+    IDLE_TTL_MINUTES="${IDLE_TTL_MINUTES:-60}"
+    JARVIS_METRICS_HOST="${JARVIS_METRICS_HOST:-jarvis.jarvis.svc.cluster.local}"
+    JARVIS_METRICS_PORT="${JARVIS_METRICS_PORT:-8080}"
+    
+    now_rfc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
+    
+    http_get() {
+      local host="$1" port="$2" path="$3" out
+      out="$(
+        timeout 15 bash -c '
+          set -e
+          exec 3<>/dev/tcp/'"$host"'/'"$port"'
+          printf "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n" "'"$path"'" "'"$host"'" >&3
+          cat <&3
+        ' 2>/dev/null
+      )" || return 1
+      printf '%s' "$out" | awk '
+        BEGIN { h=1; ok=0 }
+        { sub(/\r$/, "") }
+        NR==1 && /^HTTP\/1\.[01] 200([ ]|$)/ { ok=1 }
+        h && $0=="" { h=0; next }
+        !h { print }
+        END { if (!ok) exit 1 }
+      '
+    }
+    
+    active_router_model() {
+      local json="$1"
+      printf '%s\n' "$json" | awk '
+        {
+          n = split($0, parts, "{\"id\":\"")
+          for (i = 2; i <= n; i++) {
+            id = parts[i]
+            sub(/".*/, "", id)
+            if (parts[i] ~ /"status":\{"value":"loading"/) {
+              print "loading:" id
+              exit
+            }
+            if (parts[i] ~ /"status":\{"value":"loaded"/) {
+              print "loaded:" id
+              exit
+            }
+          }
+        }
+      '
+    }
+    
+    metrics_warmth_score() {
+      local body="$1" predicted prompt cached
+      predicted="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)tokens_predicted_total/ {s+=$2} END {printf "%.0f", s+0}')"
+      prompt="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)prompt_tokens_total/ {s+=$2} END {printf "%.0f", s+0}')"
+      cached="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)prompt_tokens_cached_total/ {s+=$2} END {printf "%.0f", s+0}')"
+      echo $(( predicted + prompt + cached ))
+    }
+    
+    metrics_in_flight() {
+      local body="$1" processing deferred
+      processing="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)requests_processing/ {s+=$2} END {printf "%.0f", s+0}')"
+      deferred="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)requests_deferred/ {s+=$2} END {printf "%.0f", s+0}')"
+      echo $(( processing + deferred ))
+    }
+    
+    annotate_lease_activity() {
+      local now score="${1:-}" model="${2:-}"
+      now="$(now_rfc)"
+      local -a args=("jarvis.watchtower/last-activity-at=${now}")
+      if [[ -n "${score}" ]]; then
+        args+=("jarvis.watchtower/metrics-warmth-score=${score}")
+      fi
+      if [[ -n "${model}" ]]; then
+        args+=("jarvis.watchtower/metrics-model=${model}")
+      fi
+      kubectl -n "$NS" annotate lease "$LEASE" "${args[@]}" --overwrite >/dev/null 2>&1 || true
+      if [[ "${DUAL_READ}" == "1" ]]; then
+        kubectl -n "$NS" annotate configmap "$CM" "${args[@]}" --overwrite >/dev/null 2>&1 || true
+      fi
+    }
+    
+    clear_stale_holder() {
+      local holder="$1"
+      echo "expiring stale lease holder=${holder}"
+      kubectl -n "$NS" patch lease "$LEASE" --type merge -p \
+        "{\"spec\":{\"holderIdentity\":\"\",\"leaseDurationSeconds\":60},\"metadata\":{\"annotations\":{\"jarvis.watchtower/run-id\":\"\",\"jarvis.watchtower/last-activity-at\":\"$(now_rfc)\"}}}" \
+        >/dev/null 2>&1 || true
+      if [[ "${DUAL_READ}" == "1" ]]; then
+        kubectl -n "$NS" annotate configmap "$CM" \
+          "jarvis.watchtower/holder-" \
+          "jarvis.watchtower/expires-at-" \
+          "jarvis.watchtower/run-id-" \
+          "jarvis.watchtower/last-activity-at=$(now_rfc)" \
+          --overwrite >/dev/null 2>&1 || true
+        kubectl -n "$NS" patch configmap "$CM" --type merge -p '{"data":{"status":"idle"}}' >/dev/null 2>&1 || true
+      fi
+    }
+    
+    warm_from_inference_traffic() {
+      local models_json active state model_id body score in_flight prev prev_model
+      models_json="$(http_get "${JARVIS_METRICS_HOST}" "${JARVIS_METRICS_PORT}" "/v1/models" || true)"
+      if [[ -z "${models_json}" ]]; then
+        echo "models endpoint unreachable (server starting or busy) — aborting idle check to protect live workload"
+        exit 0
+      fi
+    
+      active="$(active_router_model "${models_json}")"
+      if [[ -z "${active}" ]]; then
+        echo "no model currently loaded in router"
+        return 0
+      fi
+    
+      state="${active%%:*}"
+      model_id="${active#*:}"
+      if [[ "${state}" == "loading" ]]; then
+        echo "model ${model_id} is currently loading — refresh last-activity and skip sleep"
+        annotate_lease_activity "" "${model_id}"
+        exit 0
+      fi
+    
+      body="$(http_get "${JARVIS_METRICS_HOST}" "${JARVIS_METRICS_PORT}" "/metrics?model=${model_id}" || true)"
+      if [[ -z "${body}" ]]; then
+        echo "metrics unreachable for loaded model ${model_id} (server busy) — aborting idle check to protect live workload"
+        exit 0
+      fi
+    
+      score="$(metrics_warmth_score "$body")"
+      in_flight="$(metrics_in_flight "$body")"
+      prev="$(kubectl -n "$NS" get lease "$LEASE" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/metrics-warmth-score}' 2>/dev/null || true)"
+      prev_model="$(kubectl -n "$NS" get lease "$LEASE" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/metrics-model}' 2>/dev/null || true)"
+      prev="${prev:-0}"
+    
+      if (( in_flight > 0 )); then
+        echo "in-flight requests (${in_flight}) on ${model_id} (score ${score}) — refresh last-activity and skip sleep"
+        annotate_lease_activity "${score}" "${model_id}"
+        exit 0
+      fi
+    
+      if [[ "${model_id}" != "${prev_model}" ]] || (( score > prev )); then
+        echo "inference traffic detected on ${model_id} (score ${score}, prev ${prev} on ${prev_model:-none}) — refresh last-activity"
+        annotate_lease_activity "${score}" "${model_id}"
+      else
+        annotate_lease_activity "${score}" "${model_id}"
+        echo "no new inference traffic on ${model_id} (score ${score})"
+      fi
+    }
+    
+    lease_live_holder() {
+      local holder renew duration renew_epoch now_epoch
+      holder="$(kubectl -n "$NS" get lease "$LEASE" -o jsonpath='{.spec.holderIdentity}' 2>/dev/null || true)"
+      renew="$(kubectl -n "$NS" get lease "$LEASE" -o jsonpath='{.spec.renewTime}' 2>/dev/null || true)"
+      duration="$(kubectl -n "$NS" get lease "$LEASE" -o jsonpath='{.spec.leaseDurationSeconds}' 2>/dev/null || true)"
+      duration="${duration:-60}"
+      if [[ -z "${holder}" ]]; then
+        # Dual-read legacy ConfigMap during cutover.
+        if [[ "${DUAL_READ}" == "1" ]]; then
+          local cm_holder cm_expires now
+          cm_holder="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' 2>/dev/null || true)"
+          cm_expires="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' 2>/dev/null || true)"
+          now="$(now_rfc)"
+          if [[ -n "${cm_holder}" && -n "${cm_expires}" && "${cm_expires}" > "${now}" ]]; then
+            echo "${cm_holder}"
+            return 0
+          fi
+        fi
+        return 1
+      fi
+      if [[ -z "${renew}" ]]; then
+        clear_stale_holder "${holder}"
+        return 1
+      fi
+      renew_epoch="$(date -u -d "${renew}" +%s 2>/dev/null || date -u -d "${renew%.*}Z" +%s)"
+      now_epoch="$(date -u +%s)"
+      if (( now_epoch > renew_epoch + duration )); then
+        clear_stale_holder "${holder}"
+        return 1
+      fi
+      echo "${holder}"
+      return 0
+    }
+    
+    replicas="$(kubectl -n "$NS" get deployment "$DEP" -o jsonpath='{.spec.replicas}')"
+    if [[ "${replicas:-0}" == "0" ]]; then
+      echo "jarvis already scaled to 0"
+      # Still expire stale holders so a dead lease cannot block future acquires forever.
+      if live="$(lease_live_holder)"; then
+        echo "lease still live holder=${live} while replicas=0 (waiting for holder release)"
+      fi
+      exit 0
+    fi
+    
+    warm_from_inference_traffic
+    
+    if live="$(lease_live_holder)"; then
+      echo "active lease holder=${live} — skip sleep"
+      exit 0
+    fi
+    
+    last="$(kubectl -n "$NS" get lease "$LEASE" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/last-activity-at}' 2>/dev/null || true)"
+    if [[ -z "${last}" && "${DUAL_READ}" == "1" ]]; then
+      last="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/last-activity-at}' 2>/dev/null || true)"
+    fi
+    if [[ -z "${last}" ]]; then
+      echo "no last-activity-at — treating as idle, scaling to 0"
+      kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
+      exit 0
+    fi
+    
+    last_epoch="$(date -u -d "${last}" +%s)"
+    now_epoch="$(date -u +%s)"
+    age_min=$(( (now_epoch - last_epoch) / 60 ))
+    if (( age_min < IDLE_TTL_MINUTES )); then
+      echo "last activity ${age_min}m ago < TTL ${IDLE_TTL_MINUTES}m — skip sleep"
+      exit 0
+    fi
+    
+    echo "scaling jarvis to 0 (idle ${age_min}m, no live lease)"
+    kubectl -n "$NS" scale deployment/"$DEP" --replicas=0

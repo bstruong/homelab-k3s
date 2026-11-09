@@ -1,76 +1,54 @@
 #!/usr/bin/env bash
-# Acquire / release / show an exclusive JARVIS lease.
+# Acquire / release / show the exclusive JARVIS GPU lease (native Lease + CM dual-read).
 #
-#   ./scripts/jarvis-lease.sh acquire alpha-eval 45
+# Prefer scripts/jarvis-session.sh begin|heartbeat|end for campaign Jobs.
+#
+#   ./scripts/jarvis-lease.sh acquire alpha-eval 45 [run-id]
 #   ./scripts/jarvis-lease.sh release
 #   ./scripts/jarvis-lease.sh show
+#   ./scripts/jarvis-lease.sh touch
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "${SCRIPT_DIR}/jarvis-common.sh"
 
-NS="${JARVIS_NAMESPACE:-jarvis}"
-
-k() { jarvis_kubectl "$@"; }
-
-now_rfc3339() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-
-expires_in_minutes() {
-  local mins="$1"
-  date -u -d "+${mins} minutes" +%Y-%m-%dT%H:%M:%SZ
-}
-
 cmd="${1:-show}"
 case "${cmd}" in
-  show)
-    k -n "${NS}" get configmap jarvis-lease -o yaml
+  show|status)
+    "${SCRIPT_DIR}/jarvis-session.sh" status
     ;;
   acquire)
     holder="${2:-}"
     ttl_min="${3:-60}"
+    run_id="${4:-}"
     if [[ -z "${holder}" ]]; then
-      echo "Usage: $0 acquire <holder> [ttl-minutes]" >&2
+      echo "Usage: $0 acquire <holder> [ttl-minutes] [run-id]" >&2
       exit 1
     fi
-    current="$(k -n "${NS}" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' || true)"
-    expires="$(k -n "${NS}" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' || true)"
-    now="$(now_rfc3339)"
-    if [[ -n "${current}" && -n "${expires}" && "${expires}" > "${now}" && "${current}" != "${holder}" ]]; then
-      echo "fail lease held by ${current} until ${expires}" >&2
-      exit 1
-    fi
-    exp="$(expires_in_minutes "${ttl_min}")"
-    k -n "${NS}" annotate configmap jarvis-lease \
-      "jarvis.watchtower/holder=${holder}" \
-      "jarvis.watchtower/expires-at=${exp}" \
-      "jarvis.watchtower/last-activity-at=$(now_rfc3339)" \
-      --overwrite
-    k -n "${NS}" patch configmap jarvis-lease --type merge -p '{"data":{"status":"leased"}}'
-    echo "ok  lease holder=${holder} expires=${exp}"
+    jarvis_lease_acquire "${holder}" "${ttl_min}" "${run_id}"
     ;;
   release)
-    k -n "${NS}" annotate configmap jarvis-lease \
-      "jarvis.watchtower/holder-" \
-      "jarvis.watchtower/expires-at-" \
-      "jarvis.watchtower/last-activity-at=$(now_rfc3339)" \
-      --overwrite
-    k -n "${NS}" patch configmap jarvis-lease --type merge -p '{"data":{"status":"idle"}}'
-    echo "ok  lease released"
+    holder="${2:-${JARVIS_LEASE_HOLDER:-}}"
+    jarvis_lease_release "${holder}"
     ;;
-  touch)
-    k -n "${NS}" annotate configmap jarvis-lease \
-      "jarvis.watchtower/last-activity-at=$(now_rfc3339)" \
-      --overwrite
-    echo "ok  activity touched"
+  touch|heartbeat)
+    holder="${2:-${JARVIS_LEASE_HOLDER:-}}"
+    ttl_min="${3:-${JARVIS_LEASE_MINUTES:-}}"
+    if [[ -z "${holder}" ]]; then
+      jarvis_touch_activity
+      echo "ok  activity touched"
+    else
+      jarvis_lease_heartbeat "${holder}" "${ttl_min}"
+    fi
     ;;
   -h|--help|help)
     cat <<'EOF'
 Usage:
   jarvis-lease.sh show
-  jarvis-lease.sh acquire <holder> [ttl-minutes]
-  jarvis-lease.sh release
-  jarvis-lease.sh touch
+  jarvis-lease.sh acquire <holder> [ttl-minutes] [run-id]
+  jarvis-lease.sh release [holder]
+  jarvis-lease.sh touch|heartbeat [holder] [ttl-minutes]
 EOF
     ;;
   *)

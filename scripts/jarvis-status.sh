@@ -1,40 +1,24 @@
 #!/usr/bin/env bash
-# Print JARVIS deployment, lease, and HTTP health.
+# Print JARVIS deployment, native Lease, legacy ConfigMap (cutover), and HTTP health.
 set -euo pipefail
 
-NS="${JARVIS_NAMESPACE:-jarvis}"
-DEP="${JARVIS_DEPLOYMENT:-jarvis}"
-WATCHTOWER_SSH="${WATCHTOWER_SSH:-watchtower}"
-if [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
-  BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:8080/v1}"
-else
-  BASE_URL="${OPENAI_BASE_URL:-http://ai.watchtower.local/v1}"
-  # LAN 8080 is firewalled; rewrite legacy direct hostPort URL to Traefik ingress.
-  BASE_URL="${BASE_URL//192.0.2.10:8080/ai.watchtower.local}"
-fi
-ROOT_URL="${BASE_URL%/v1}"
-CONTEXT="${KUBE_CONTEXT:-}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/jarvis-common.sh"
 
-k() {
-  if [[ -n "${CONTEXT}" ]]; then
-    kubectl --context="${CONTEXT}" "$@"
-  elif [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
-    kubectl "$@"
-  else
-    ssh "${WATCHTOWER_SSH}" kubectl "$(printf '%q ' "$@")"
-  fi
-}
+BASE_URL="$(jarvis_default_base_url)"
+ROOT_URL="${BASE_URL%/v1}"
 
 echo "=== deployment ==="
-k -n "${NS}" get deployment "${DEP}" -o wide 2>/dev/null || echo "(missing)"
+jarvis_kubectl -n "${JARVIS_NS}" get deployment "${JARVIS_DEP}" -o wide 2>/dev/null || echo "(missing)"
 
 echo
 echo "=== pods ==="
-k -n "${NS}" get pods -l app.kubernetes.io/name=jarvis -o wide 2>/dev/null || true
+jarvis_kubectl -n "${JARVIS_NS}" get pods -l app.kubernetes.io/name=jarvis -o wide 2>/dev/null || true
 
 echo
-echo "=== lease ==="
-k -n "${NS}" get configmap jarvis-lease -o jsonpath='holder={.metadata.annotations.jarvis\.watchtower/holder} expires={.metadata.annotations.jarvis\.watchtower/expires-at} last-activity={.metadata.annotations.jarvis\.watchtower/last-activity-at}{"\n"}' 2>/dev/null || echo "(missing)"
+echo "=== lease (coordination.k8s.io/v1) ==="
+"${SCRIPT_DIR}/jarvis-session.sh" status || true
 
 echo
 echo "=== health ==="
