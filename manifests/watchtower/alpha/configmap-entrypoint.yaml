@@ -7,11 +7,59 @@ metadata:
   labels:
     app.kubernetes.io/name: alpha-runner
 data:
+  write-infra-provenance.py: |
+    #!/usr/bin/env python3
+    import json
+    import os
+
+    path = os.environ["ALPHA_INFRA_PROVENANCE_PATH"]
+    doc = {
+        "schema": "alpha.infra_provenance.v1",
+        "runner": {
+            "image": os.environ.get("ALPHA_RUNNER_IMAGE"),
+            "image_digest": os.environ.get("ALPHA_RUNNER_IMAGE_DIGEST"),
+            "pod_name": os.environ.get("POD_NAME"),
+            "job_name": os.environ.get("JOB_NAME"),
+        },
+        "jarvis": {
+            "image_digest": os.environ.get("JARVIS_IMAGE_DIGEST"),
+            "config_digest": os.environ.get("JARVIS_CONFIG_DIGEST"),
+            "returned_model_id": os.environ.get("JARVIS_RETURNED_MODEL_ID"),
+        },
+        "lease": {
+            "holder": os.environ.get("JARVIS_LEASE_HOLDER"),
+            "run_id": os.environ.get("JARVIS_SESSION_RUN_ID"),
+            "namespace": "jarvis",
+            "lease_name": "jarvis-gpu",
+        },
+        "repositories": {
+            "alpha": {
+                "commit": os.environ.get("ALPHA_GIT_SHA"),
+                "ref": os.environ.get("ALPHA_GIT_REF"),
+            },
+            "alpha_lab": {
+                "commit": os.environ.get("ALPHA_LAB_GIT_SHA"),
+                "ref": os.environ.get("ALPHA_LAB_GIT_REF"),
+            },
+            "homelab_k3s": {
+                "commit": os.environ.get("HOMELAB_GIT_SHA"),
+                "ref": os.environ.get("HOMELAB_GIT_REF"),
+            },
+        },
+        "warmup": {"health_ok": True, "slot_erase_ok": None},
+    }
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, indent=2, sort_keys=True)
+        fh.write("\n")
+    print(f"ok  wrote {path}")
   entrypoint.sh: |
     #!/usr/bin/env bash
     # Alpha campaign Job entrypoint (Watchtower).
     # Owns JARVIS session (acquire/wake/heartbeat/release/scale-down) once around
     # the campaign. Laptops must not heartbeat or keep this process alive.
+    #
+    # Phase 5: require commit SHAs + runner image digest for promotable jobs;
+    # record infra provenance (JARVIS image/config digests, lease identity).
     set -euo pipefail
 
     DATA="${ALPHA_DATA_ROOT:-/data}"
@@ -24,12 +72,18 @@ data:
     ALPHA_REPO="${ALPHA_REPO:-https://github.com/bstruong/alpha.git}"
     LAB_REPO="${ALPHA_LAB_REPO:-https://github.com/bstruong/alpha-lab.git}"
     HOMELAB_REPO="${HOMELAB_K3S_REPO:-https://github.com/bstruong/homelab-k3s.git}"
-    ALPHA_REF="${ALPHA_GIT_REF:-main}"
-    LAB_REF="${ALPHA_LAB_GIT_REF:-main}"
-    HOMELAB_REF="${HOMELAB_GIT_REF:-main}"
+
+    # Prefer explicit SHAs; fall back to refs only when ALPHA_ALLOW_MOVING_REFS=1.
+    ALPHA_SHA="${ALPHA_GIT_SHA:-}"
+    LAB_SHA="${ALPHA_LAB_GIT_SHA:-}"
+    HOMELAB_SHA="${HOMELAB_GIT_SHA:-}"
+    ALPHA_REF="${ALPHA_GIT_REF:-${ALPHA_SHA}}"
+    LAB_REF="${ALPHA_LAB_GIT_REF:-${LAB_SHA}}"
+    HOMELAB_REF="${HOMELAB_GIT_REF:-${HOMELAB_SHA}}"
+    ALLOW_MOVING="${ALPHA_ALLOW_MOVING_REFS:-0}"
 
     CAMPAIGN_FROM="${ALPHA_CAMPAIGN_FROM:-ruby}"
-    CAMPAIGN_SCRIPT="${ALPHA_CAMPAIGN_SCRIPT:-scripts/run_capability_map_v2.sh}"
+    CAMPAIGN_SCRIPT="${ALPHA_CAMPAIGN_SCRIPT:-scripts/run_capability_map.sh}"
     NTFY_URL="${ALPHA_NTFY_URL:-http://ntfy.monitoring.svc.cluster.local:8080}"
     NTFY_TOPIC="${ALPHA_NTFY_TOPIC:-alpha-campaigns}"
     JOB_NAME="${JOB_NAME:-alpha-campaign}"
@@ -41,6 +95,50 @@ data:
 
     mkdir -p "${ARTIFACTS}"/{results/runs,results/logs,qualifications,reports} \
              "${SRC}"
+
+    is_full_sha() { [[ "${1:-}" =~ ^[0-9a-fA-F]{40}$ ]]; }
+    is_moving() {
+      case "${1:-}" in main|master|latest|HEAD) return 0 ;; *) return 1 ;; esac
+    }
+
+    require_pins() {
+      local missing=0
+      if [[ -z "${ALPHA_RUNNER_IMAGE_DIGEST:-${ALPHA_RUNNER_IMAGE:-}}" ]]; then
+        echo "fail: ALPHA_RUNNER_IMAGE_DIGEST (or digest-pinned ALPHA_RUNNER_IMAGE) required" >&2
+        missing=1
+      fi
+      if [[ "${ALPHA_RUNNER_IMAGE:-}" == *":latest"* ]]; then
+        echo "fail: ALPHA_RUNNER_IMAGE must not use :latest" >&2
+        missing=1
+      fi
+      for pair in "ALPHA_GIT_SHA:${ALPHA_SHA}" "ALPHA_LAB_GIT_SHA:${LAB_SHA}" "HOMELAB_GIT_SHA:${HOMELAB_SHA}"; do
+        local name="${pair%%:*}" val="${pair#*:}"
+        if ! is_full_sha "${val}"; then
+          echo "fail: ${name} must be a full 40-char commit SHA" >&2
+          missing=1
+        fi
+      done
+      for pair in "ALPHA_GIT_REF:${ALPHA_REF}" "ALPHA_LAB_GIT_REF:${LAB_REF}" "HOMELAB_GIT_REF:${HOMELAB_REF}"; do
+        local name="${pair%%:*}" val="${pair#*:}"
+        if is_moving "${val}"; then
+          echo "fail: ${name}=${val} is a moving ref" >&2
+          missing=1
+        fi
+      done
+      if [[ "${missing}" -ne 0 ]]; then
+        echo "hint: ALPHA_ALLOW_MOVING_REFS=1 permits diagnostics only (not promotable)" >&2
+        exit 1
+      fi
+    }
+
+    if [[ "${ALLOW_MOVING}" != "1" ]]; then
+      require_pins
+    else
+      echo "warn: ALPHA_ALLOW_MOVING_REFS=1 — campaign is not promotable"
+      ALPHA_REF="${ALPHA_REF:-main}"
+      LAB_REF="${LAB_REF:-main}"
+      HOMELAB_REF="${HOMELAB_REF:-main}"
+    fi
 
     notify() {
       local status="$1" body="$2"
@@ -99,12 +197,18 @@ data:
       fi
       if [[ -d "${dir}/.git" ]]; then
         git -C "${dir}" fetch --depth 1 origin "${ref}"
-        git -C "${dir}" checkout -B "${ref}" "FETCH_HEAD"
+        git -C "${dir}" checkout -B "phase5-${ref}" "FETCH_HEAD"
       else
         rm -rf "${dir}"
-        git clone --depth 1 --branch "${ref}" "${url}" "${dir}" \
-          || git clone --depth 1 "${url}" "${dir}"
-        git -C "${dir}" checkout "${ref}" 2>/dev/null || true
+        if is_full_sha "${ref}"; then
+          git clone --depth 1 "${url}" "${dir}"
+          git -C "${dir}" fetch --depth 1 origin "${ref}"
+          git -C "${dir}" checkout "${ref}"
+        else
+          git clone --depth 1 --branch "${ref}" "${url}" "${dir}" \
+            || git clone --depth 1 "${url}" "${dir}"
+          git -C "${dir}" checkout "${ref}" 2>/dev/null || true
+        fi
       fi
     }
 
@@ -112,6 +216,14 @@ data:
     sync_repo "${ALPHA_REPO}" "${ALPHA_DIR}" "${ALPHA_REF}"
     sync_repo "${LAB_REPO}" "${LAB_DIR}" "${LAB_REF}"
     sync_repo "${HOMELAB_REPO}" "${HOMELAB_DIR}" "${HOMELAB_REF}"
+
+    # Resolve actual HEADs (authoritative for provenance even when refs were SHAs).
+    export ALPHA_GIT_SHA="$(git -C "${ALPHA_DIR}" rev-parse HEAD)"
+    export ALPHA_LAB_GIT_SHA="$(git -C "${LAB_DIR}" rev-parse HEAD)"
+    export HOMELAB_GIT_SHA="$(git -C "${HOMELAB_DIR}" rev-parse HEAD)"
+    export ALPHA_GIT_REF="${ALPHA_REF}"
+    export ALPHA_LAB_GIT_REF="${LAB_REF}"
+    export HOMELAB_GIT_REF="${HOMELAB_REF}"
 
     # Prefer image-baked Pi harness; otherwise npm ci into the worktree.
     if [[ -x /opt/pi-harness/node_modules/.bin/pi ]]; then
@@ -133,8 +245,6 @@ data:
     export ALPHA_PROMOTE_LAB="${ALPHA_PROMOTE_LAB:-0}"
     export OPENAI_BASE_URL="${OPENAI_BASE_URL:-http://jarvis.jarvis.svc.cluster.local:8080/v1}"
     export ALPHA_CAMPAIGN_FROM="${CAMPAIGN_FROM}"
-    # Campaign scripts may still call jarvis-up/lease; they must not scale down.
-    # Entrypoint owns final jarvis-session end → scale-to-zero.
     export ALPHA_JARVIS_DOWN_AFTER="${ALPHA_JARVIS_DOWN_AFTER:-0}"
     export JARVIS_LEASE_HOLDER="${JARVIS_LEASE_HOLDER:-alpha-campaign}"
     export JARVIS_LEASE_MINUTES="${JARVIS_LEASE_MINUTES:-240}"
@@ -160,6 +270,42 @@ data:
     HB_PID=$!
     echo "==> heartbeat pid=${HB_PID} interval=${HB_SECS}s"
 
+    # Capture runner + JARVIS digests for Alpha provenance (best-effort).
+    capture_infra_provenance() {
+      local out="${ARTIFACTS}/results/infra_provenance.json"
+      local runner_digest="${ALPHA_RUNNER_IMAGE_DIGEST:-}"
+      if [[ -z "${runner_digest}" && -n "${ALPHA_RUNNER_IMAGE:-}" ]]; then
+        runner_digest="$(printf '%s' "${ALPHA_RUNNER_IMAGE}" | sed -n 's/.*@(sha256:[0-9a-fA-F]\{64\}\)$/\1/p')"
+      fi
+      if [[ -z "${runner_digest}" && -n "${POD_NAME}" ]]; then
+        runner_digest="$(kubectl -n alpha get pod "${POD_NAME}" \
+          -o jsonpath='{.status.containerStatuses[0].imageID}' 2>/dev/null || true)"
+      fi
+      local jarvis_digest=""
+      jarvis_digest="$(kubectl -n jarvis get deploy jarvis \
+        -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)"
+      local jarvis_pod_digest=""
+      jarvis_pod_digest="$(kubectl -n jarvis get pods -l app.kubernetes.io/name=jarvis \
+        -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null || true)"
+      local returned_model=""
+      returned_model="$(curl -fsS "${OPENAI_BASE_URL%/v1}/v1/models" 2>/dev/null \
+        | python3 -c 'import sys,json; d=json.load(sys.stdin); print((d.get("data") or [{}])[0].get("id",""))' \
+        2>/dev/null || true)"
+      local config_digest=""
+      if kubectl -n jarvis get configmap jarvis-config >/dev/null 2>&1; then
+        config_digest="$(kubectl -n jarvis get configmap jarvis-config -o json \
+          | python3 -c 'import sys,json,hashlib; print("sha256:"+hashlib.sha256(sys.stdin.buffer.read()).hexdigest())' \
+          2>/dev/null || true)"
+      fi
+      export ALPHA_RUNNER_IMAGE_DIGEST="${runner_digest}"
+      export JARVIS_IMAGE_DIGEST="${jarvis_pod_digest:-${jarvis_digest}}"
+      export JARVIS_CONFIG_DIGEST="${config_digest}"
+      export JARVIS_RETURNED_MODEL_ID="${returned_model}"
+      export ALPHA_INFRA_PROVENANCE_PATH="${out}"
+      python3 /entrypoint/write-infra-provenance.py
+    }
+    capture_infra_provenance || echo "warn: infra provenance capture failed" >&2
+
     # Symlink artifact dirs into the Alpha tree so bin/alpha paths stay normal.
     cd "${ALPHA_DIR}"
     mkdir -p "${ARTIFACTS}/results/logs" "${ARTIFACTS}/qualifications" "${ARTIFACTS}/reports"
@@ -169,7 +315,6 @@ data:
       fi
       ln -sfn "${ARTIFACTS}/${sub}" "${sub}"
     done
-    # results -> ARTIFACTS/results already covers results/logs; do not nest a symlink.
 
     echo "==> doctor"
     bin/alpha doctor || true

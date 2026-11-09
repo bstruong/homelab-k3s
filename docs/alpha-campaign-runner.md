@@ -21,16 +21,23 @@ ntfy is **deny-all**; topic `alpha-campaigns` uses user `alpha` + a Bearer token
 
 ```bash
 # From Metrotower or Tohsaka (Alpha checkout) — submission only after Alpha cutover
-./scripts/alpha_watchtower_kick.sh                 # default ALPHA_CAMPAIGN_FROM=ruby
+# Phase 5: digest + commit SHAs required for promotable graded Jobs
+./docker/alpha-runner/build-push.sh                # prints ALPHA_RUNNER_IMAGE=...@sha256:...
+ALPHA_RUNNER_IMAGE=registry.watchtower.local/alpha-runner@sha256:... \
+ALPHA_GIT_SHA=<40hex> ALPHA_LAB_GIT_SHA=<40hex> HOMELAB_GIT_SHA=<40hex> \
+  ./scripts/alpha_watchtower_kick.sh               # default ALPHA_CAMPAIGN_FROM=ruby
 # Power off — Job continues on Watchtower (Lease + heartbeat + cleanup are in-cluster)
 
 ./scripts/alpha_watchtower_status.sh               # anytime
 ./scripts/alpha_watchtower_review.sh               # CAPABILITY_MAP_LIVE on disk
 ./scripts/alpha_watchtower_review.sh log           # latest campaign log
 
-# Only when promoting into alpha-lab git:
+# Only when promoting into alpha-lab git (sanitized bundle; raw results/ stays ignored):
 ./scripts/alpha_watchtower_pull.sh
 ```
+
+Entrypoint writes `results/infra_provenance.json` (runner/JARVIS digests, lease
+identity, resolved SHAs) for Alpha `run_manifest.json` / report provenance.
 
 Lifecycle contract for the Alpha PR:
 [alpha-jarvis-session-contract.md](alpha-jarvis-session-contract.md).

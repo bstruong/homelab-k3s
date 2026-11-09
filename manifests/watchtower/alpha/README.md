@@ -38,6 +38,17 @@ cd ~/Projects/alpha
 ./docker/alpha-runner/build-push.sh
 ```
 
-Default image: `registry.watchtower.local/alpha-runner:latest`
+Phase 5 pins (promotable graded Jobs):
+
+```bash
+./docker/alpha-runner/build-push.sh   # prints ALPHA_RUNNER_IMAGE=...@sha256:...
+ALPHA_RUNNER_IMAGE=registry.watchtower.local/alpha-runner@sha256:... \
+ALPHA_GIT_SHA=<40> ALPHA_LAB_GIT_SHA=<40> HOMELAB_GIT_SHA=<40> \
+  ./scripts/alpha_watchtower_kick.sh
+```
+
+The CronJob template ships `alpha-runner:pin-me` as a non-runnable placeholder —
+kick must rewrite the Job image to a digest. Moving `main` / `:latest` defaults
+are removed. `ALPHA_ALLOW_MOVING_REFS=1` is diagnostics-only (not promotable).
 
 Lifecycle contract: [docs/alpha-jarvis-session-contract.md](../../../docs/alpha-jarvis-session-contract.md).

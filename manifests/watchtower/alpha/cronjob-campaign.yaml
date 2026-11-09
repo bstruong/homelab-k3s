@@ -54,9 +54,11 @@ spec:
             appArmorProfile:
               type: Unconfined
           containers:
+            # Phase 5: do not ship :latest / moving main. Kick must bake a
+            # digest-pinned ALPHA_RUNNER_IMAGE and full commit SHAs.
             - name: campaign
-              image: registry.watchtower.local/alpha-runner:latest
-              imagePullPolicy: Always
+              image: registry.watchtower.local/alpha-runner:pin-me
+              imagePullPolicy: IfNotPresent
               command: ["/bin/bash", "/entrypoint/entrypoint.sh"]
               env:
                 - name: JOB_NAME
@@ -86,12 +88,25 @@ spec:
                   value: "http://jarvis.jarvis.svc.cluster.local:8080/v1"
                 - name: ALPHA_CHROME_PATH
                   value: "/usr/bin/chromium"
+                # Empty defaults — kick / operator must supply immutable SHAs.
                 - name: ALPHA_GIT_REF
-                  value: "main"
+                  value: ""
                 - name: ALPHA_LAB_GIT_REF
-                  value: "main"
+                  value: ""
                 - name: HOMELAB_GIT_REF
-                  value: "main"
+                  value: ""
+                - name: ALPHA_GIT_SHA
+                  value: ""
+                - name: ALPHA_LAB_GIT_SHA
+                  value: ""
+                - name: HOMELAB_GIT_SHA
+                  value: ""
+                - name: ALPHA_RUNNER_IMAGE
+                  value: ""
+                - name: ALPHA_RUNNER_IMAGE_DIGEST
+                  value: ""
+                - name: ALPHA_ALLOW_MOVING_REFS
+                  value: "0"
                 - name: JARVIS_LEASE_HOLDER
                   value: "alpha-campaign"
                 - name: JARVIS_LEASE_MINUTES
