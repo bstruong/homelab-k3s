@@ -26,6 +26,15 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
+    # Kubernetes API (in-cluster SA for jarvis-up / lease)
+    - to:
+        - ipBlock:
+            cidr: 10.43.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 6443
     # JARVIS inference
     - to:
         - namespaceSelector:

@@ -110,7 +110,12 @@ metadata:
   labels:
     homelab.watchtower/stack: watchtower
     # Campaign runner Jobs (CPU client to JARVIS). GPU inference stays in jarvis.
-    pod-security.kubernetes.io/enforce: baseline
+    # privileged PSA ceiling: Phase 2 bubblewrap needs Unconfined seccomp/AppArmor
+    # so evaluated agents can create unprivileged user namespaces. Pods stay
+    # non-root with capabilities dropped; this is not a license to run privileged.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: restricted
+    pod-security.kubernetes.io/audit: restricted
 ---
 apiVersion: v1
 kind: Namespace

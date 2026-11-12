@@ -1,4 +1,4 @@
-# ServiceAccount for the idle-sleep CronJob (scale jarvis 1→0 when quiet).
+# ServiceAccount for the idle safety reconciler (expire stale Lease, scale 0).
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -15,10 +15,20 @@ metadata:
   labels:
     app.kubernetes.io/name: jarvis
 rules:
+  # Scale only — never mutate the parent Deployment pod template.
   - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/scale"]
+    resources: ["deployments"]
+    resourceNames: ["jarvis"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
     resourceNames: ["jarvis"]
     verbs: ["get", "patch", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["jarvis-gpu"]
+    verbs: ["get", "patch", "update"]
+  # Dual-read/mirror during ConfigMap cutover; remove after Alpha validates.
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames: ["jarvis-lease"]

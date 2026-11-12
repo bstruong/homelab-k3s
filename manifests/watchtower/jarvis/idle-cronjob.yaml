@@ -1,9 +1,7 @@
-# Sleepy-warm idle reclaim. Every 10 minutes:
-# 1) If replicas>0, sample llama.cpp /metrics. Growing token counters or
-#    in-flight requests refresh jarvis.watchtower/last-activity-at so real
-#    inference traffic (not only jarvis-up / lease scripts) keeps the GPU warm.
-# 2) If no active lease and last-activity is older than IDLE_TTL_MINUTES, scale
-#    to 0.
+# Safety reconciler only. Campaign Jobs own acquire/wake/heartbeat/release via
+# jarvis-session.sh. This CronJob expires stale Leases and reclaim idle GPU
+# replicas. Unreachable metrics must never destroy a potentially active workload
+# (see scripts/jarvis-reconcile-idle.sh fail-safe exits).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -19,6 +17,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 1
+      activeDeadlineSeconds: 120
       template:
         metadata:
           labels:
@@ -35,7 +34,7 @@ spec:
             seccompProfile:
               type: RuntimeDefault
           containers:
-            - name: idle-sleep
+            - name: idle-reconcile
               # bitnami/kubectl:1.31 was removed from Docker Hub; legacy mirror
               # still publishes the 1.31 tag used by the idle-sleep script.
               image: bitnamilegacy/kubectl:1.31
@@ -47,175 +46,9 @@ spec:
                   value: "jarvis.jarvis.svc.cluster.local"
                 - name: JARVIS_METRICS_PORT
                   value: "8080"
-              command: ["/bin/bash", "-c"]
-              args:
-                - |
-                  set -euo pipefail
-                  NS=jarvis
-                  DEP=jarvis
-                  CM=jarvis-lease
-                  now_rfc() { date -u +%Y-%m-%dT%H:%M:%SZ; }
-
-                  # Fetch HTTP body from llama-server via bash /dev/tcp
-                  # (bitnami kubectl image has no curl).
-                  http_get() {
-                    local host="$1" port="$2" path="$3" out
-                    out="$(
-                      timeout 15 bash -c '
-                        set -e
-                        exec 3<>/dev/tcp/'"$host"'/'"$port"'
-                        printf "GET %s HTTP/1.0\r\nHost: %s\r\nConnection: close\r\n\r\n" "'"$path"'" "'"$host"'" >&3
-                        cat <&3
-                      ' 2>/dev/null
-                    )" || return 1
-                    # Strip HTTP headers (CRLF line endings) and require HTTP 200.
-                    printf '%s' "$out" | awk '
-                      BEGIN { h=1; ok=0 }
-                      { sub(/\r$/, "") }
-                      NR==1 && /^HTTP\/1\.[01] 200([ ]|$)/ { ok=1 }
-                      h && $0=="" { h=0; next }
-                      !h { print }
-                      END { if (!ok) exit 1 }
-                    '
-                  }
-
-                  # Discover loaded/loading model id from router /v1/models JSON.
-                  # Prints "<state>:<model_id>" (e.g. "loaded:qwen36-coder-hybrid").
-                  active_router_model() {
-                    local json="$1"
-                    printf '%s\n' "$json" | awk '
-                      {
-                        n = split($0, parts, "{\"id\":\"")
-                        for (i = 2; i <= n; i++) {
-                          id = parts[i]
-                          sub(/".*/, "", id)
-                          if (parts[i] ~ /"status":\{"value":"loading"/) {
-                            print "loading:" id
-                            exit
-                          }
-                          if (parts[i] ~ /"status":\{"value":"loaded"/) {
-                            print "loaded:" id
-                            exit
-                          }
-                        }
-                      }
-                    '
-                  }
-
-                  # Prefer cumulative token counters; include cached prompt tokens.
-                  metrics_warmth_score() {
-                    local body="$1" predicted prompt cached score
-                    predicted="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)tokens_predicted_total/ {s+=$2} END {printf "%.0f", s+0}')"
-                    prompt="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)prompt_tokens_total/ {s+=$2} END {printf "%.0f", s+0}')"
-                    cached="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)prompt_tokens_cached_total/ {s+=$2} END {printf "%.0f", s+0}')"
-                    score=$(( predicted + prompt + cached ))
-                    echo "$score"
-                  }
-
-                  metrics_in_flight() {
-                    local body="$1" processing deferred
-                    processing="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)requests_processing/ {s+=$2} END {printf "%.0f", s+0}')"
-                    deferred="$(printf '%s\n' "$body" | awk '/^llamacpp(:|_)requests_deferred/ {s+=$2} END {printf "%.0f", s+0}')"
-                    echo $(( processing + deferred ))
-                  }
-
-                  warm_from_inference_traffic() {
-                    local models_json active state model_id body score in_flight prev prev_model
-                    models_json="$(http_get "${JARVIS_METRICS_HOST}" "${JARVIS_METRICS_PORT}" "/v1/models" || true)"
-                    if [[ -z "${models_json}" ]]; then
-                      echo "models endpoint unreachable (server starting or busy) — aborting idle check to protect live workload"
-                      exit 0
-                    fi
-
-                    active="$(active_router_model "${models_json}")"
-                    if [[ -z "${active}" ]]; then
-                      echo "no model currently loaded in router"
-                      return 0
-                    fi
-
-                    state="${active%%:*}"
-                    model_id="${active#*:}"
-                    if [[ "${state}" == "loading" ]]; then
-                      echo "model ${model_id} is currently loading — refresh last-activity and skip sleep"
-                      kubectl -n "$NS" annotate configmap "$CM" \
-                        "jarvis.watchtower/last-activity-at=$(now_rfc)" \
-                        "jarvis.watchtower/metrics-model=${model_id}" \
-                        --overwrite
-                      exit 0
-                    fi
-
-                    body="$(http_get "${JARVIS_METRICS_HOST}" "${JARVIS_METRICS_PORT}" "/metrics?model=${model_id}" || true)"
-                    if [[ -z "${body}" ]]; then
-                      echo "metrics unreachable for loaded model ${model_id} (server busy) — aborting idle check to protect live workload"
-                      exit 0
-                    fi
-
-                    score="$(metrics_warmth_score "$body")"
-                    in_flight="$(metrics_in_flight "$body")"
-                    prev="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/metrics-warmth-score}' || true)"
-                    prev_model="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/metrics-model}' || true)"
-                    prev="${prev:-0}"
-
-                    if (( in_flight > 0 )); then
-                      echo "in-flight requests (${in_flight}) on ${model_id} (score ${score}) — refresh last-activity and skip sleep"
-                      kubectl -n "$NS" annotate configmap "$CM" \
-                        "jarvis.watchtower/last-activity-at=$(now_rfc)" \
-                        "jarvis.watchtower/metrics-warmth-score=${score}" \
-                        "jarvis.watchtower/metrics-model=${model_id}" \
-                        --overwrite
-                      exit 0
-                    fi
-
-                    if [[ "${model_id}" != "${prev_model}" ]] || (( score > prev )); then
-                      echo "inference traffic detected on ${model_id} (score ${score}, prev ${prev} on ${prev_model:-none}) — refresh last-activity"
-                      kubectl -n "$NS" annotate configmap "$CM" \
-                        "jarvis.watchtower/last-activity-at=$(now_rfc)" \
-                        "jarvis.watchtower/metrics-warmth-score=${score}" \
-                        "jarvis.watchtower/metrics-model=${model_id}" \
-                        --overwrite
-                    else
-                      # Persist baseline so the next tick can detect growth.
-                      kubectl -n "$NS" annotate configmap "$CM" \
-                        "jarvis.watchtower/metrics-warmth-score=${score}" \
-                        "jarvis.watchtower/metrics-model=${model_id}" \
-                        --overwrite
-                      echo "no new inference traffic on ${model_id} (score ${score})"
-                    fi
-                  }
-
-                  replicas="$(kubectl -n "$NS" get deployment "$DEP" -o jsonpath='{.spec.replicas}')"
-                  if [[ "${replicas:-0}" == "0" ]]; then
-                    echo "jarvis already scaled to 0"
-                    exit 0
-                  fi
-
-                  warm_from_inference_traffic
-
-                  holder="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' || true)"
-                  expires="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' || true)"
-                  now="$(now_rfc)"
-                  if [[ -n "${holder}" && -n "${expires}" && "${expires}" > "${now}" ]]; then
-                    echo "active lease holder=${holder} expires=${expires} — skip sleep"
-                    exit 0
-                  fi
-
-                  last="$(kubectl -n "$NS" get configmap "$CM" -o jsonpath='{.metadata.annotations.jarvis\.watchtower/last-activity-at}' || true)"
-                  if [[ -z "${last}" ]]; then
-                    echo "no last-activity-at — treating as idle, scaling to 0"
-                    kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
-                    exit 0
-                  fi
-
-                  last_epoch="$(date -u -d "${last}" +%s)"
-                  now_epoch="$(date -u +%s)"
-                  age_min=$(( (now_epoch - last_epoch) / 60 ))
-                  if (( age_min < IDLE_TTL_MINUTES )); then
-                    echo "last activity ${age_min}m ago < TTL ${IDLE_TTL_MINUTES}m — skip sleep"
-                    exit 0
-                  fi
-
-                  echo "scaling jarvis to 0 (idle ${age_min}m, no lease)"
-                  kubectl -n "$NS" scale deployment/"$DEP" --replicas=0
+                - name: JARVIS_LEASE_DUAL_READ
+                  value: "1"
+              command: ["/bin/bash", "/scripts/jarvis-reconcile-idle.sh"]
               securityContext:
                 allowPrivilegeEscalation: false
                 readOnlyRootFilesystem: true
@@ -229,9 +62,16 @@ spec:
                   cpu: 200m
                   memory: 128Mi
               volumeMounts:
+                - name: scripts
+                  mountPath: /scripts
+                  readOnly: true
                 - name: tmp
                   mountPath: /tmp
           volumes:
+            - name: scripts
+              configMap:
+                name: jarvis-idle-reconcile
+                defaultMode: 0755
             - name: tmp
               emptyDir:
                 sizeLimit: 16Mi
