@@ -1,0 +1,19 @@
+# Native exclusive GPU ownership for Alpha campaigns and long interactive sessions.
+# scripts/jarvis-session.sh / jarvis-lease.sh CAS-update holderIdentity, renewTime,
+# leaseDurationSeconds, and jarvis.watchtower/* annotations. The idle reconciler
+# treats renewTime+leaseDurationSeconds as the exclusivity window.
+apiVersion: coordination.k8s.io/v1
+kind: Lease
+metadata:
+  name: jarvis-gpu
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: jarvis
+  annotations:
+    jarvis.watchtower/run-id: ""
+    jarvis.watchtower/last-activity-at: ""
+    jarvis.watchtower/metrics-warmth-score: "0"
+    jarvis.watchtower/metrics-model: ""
+spec:
+  holderIdentity: ""
+  leaseDurationSeconds: 60

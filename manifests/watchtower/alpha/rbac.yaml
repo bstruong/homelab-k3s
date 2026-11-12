@@ -7,7 +7,8 @@ metadata:
   labels:
     app.kubernetes.io/name: alpha-runner
 ---
-# Cross-namespace: wake/sleep JARVIS and hold the lease ConfigMap.
+# Cross-namespace: scale JARVIS and operate the named GPU Lease.
+# Never patch the parent Deployment (pod template / privileged escape).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
@@ -17,9 +18,19 @@ metadata:
     app.kubernetes.io/name: alpha-runner
 rules:
   - apiGroups: ["apps"]
-    resources: ["deployments", "deployments/scale"]
+    resources: ["deployments"]
+    resourceNames: ["jarvis"]
+    verbs: ["get"]
+  - apiGroups: ["apps"]
+    resources: ["deployments/scale"]
     resourceNames: ["jarvis"]
     verbs: ["get", "patch", "update"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    resourceNames: ["jarvis-gpu"]
+    verbs: ["get", "list", "patch", "update"]
+  # Cutover only: dual-read + mirror holder onto legacy ConfigMap so old kick/status
+  # keep working. Remove this rule (and lease-configmap.yaml) after Alpha validates.
   - apiGroups: [""]
     resources: ["configmaps"]
     resourceNames: ["jarvis-lease"]

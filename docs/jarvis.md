@@ -9,6 +9,7 @@ Assassin, Odysseus, Omega) are **clients** only.
 | Namespace | `jarvis` |
 | Deployment | `jarvis` |
 | ConfigMap (presets) | `jarvis-models` → `models.ini` (**source of truth**) |
+| Lease (exclusive GPU) | `coordination.k8s.io/v1` `jarvis-gpu` |
 | Service DNS | `jarvis.jarvis.svc.cluster.local:8080` |
 | Host port | `127.0.0.1:8080` on the Watchtower node (loopback-only `hostPort`) |
 | Ingress | `ai.watchtower.local`, `jarvis.watchtower.local` |
@@ -26,15 +27,16 @@ loopback-only and LAN 8080 is firewalled.
 1. **One resident GGUF** — Deployment claims `nvidia.com/gpu: 1`. Router args
    `--models-preset` + `--models-max 1`. Clients name a preset id; JARVIS
    loads/swaps; the previous model unloads.
-2. **Wake on demand** — Default `replicas: 0`. `./scripts/jarvis-up.sh` (or
-   homelab-k3s `scripts/alpha-engine` or `jarvis-up.sh`) scales to 1 and waits on `/health`.
-3. **Idle sleep** — CronJob `jarvis-idle-sleep` every 10 minutes: samples
-   llama.cpp `/metrics` so real inference traffic refreshes
-   `last-activity-at`; if no active lease and activity is older than ~60
-   minutes, scale to 0.
-4. **Leases** — Exclusive long eval / agent work:
-   `./scripts/jarvis-lease.sh acquire <holder> [ttl-minutes]`. Blocks idle
-   sleep. Release with `./scripts/jarvis-lease.sh release`.
+2. **Wake on demand** — Default `replicas: 0`. Prefer
+   `./scripts/jarvis-session.sh begin …` (acquire + scale 1 + `/health`).
+   `./scripts/jarvis-up.sh` remains a thin wake helper.
+3. **Safety reconciler** — CronJob `jarvis-idle-sleep` every 10 minutes runs
+   `jarvis-reconcile-idle.sh`: refresh activity from llama.cpp `/metrics`,
+   expire stale Lease holders, and scale to 0 only when idle past ~60 minutes
+   with no live holder. Unreachable metrics **never** force scale-down.
+4. **Leases** — Exclusive long eval / agent work uses native Lease
+   `jarvis-gpu` (holder, run ID, renew time, duration). CAS acquire prevents
+   two live holders.
 5. **Same client path** — `health → (wake if down) → POST /v1/chat/completions`
    with `model: <preset>`.
 
@@ -47,30 +49,45 @@ loopback-only and LAN 8080 is firewalled.
 | I need my own llama Deployment | **No** |
 | I can run during Alpha’s leased eval | **No** — wait or fail loud |
 | Overnight silence parks the GPU | **Yes** |
+| Graded Alpha suites keep JARVIS up from a laptop | **No** — Watchtower Job owns the session |
 
-## Lease-aware clients
-
-Exclusive GPU use is first-class. Prefer the shared script over inventing
-per-app lease stores:
+## Session interface (preferred)
 
 ```sh
-# From a machine with kubectl → Watchtower (or ssh watchtower)
+./scripts/jarvis-session.sh begin alpha-eval 45 my-run-id
+./scripts/jarvis-session.sh heartbeat
+./scripts/jarvis-session.sh end
+./scripts/jarvis-session.sh status
+```
+
+Alpha campaign Jobs call this once around the suite (see
+[alpha-jarvis-session-contract.md](alpha-jarvis-session-contract.md)).
+Operators may still use the thin wrappers:
+
+```sh
 ./scripts/jarvis-lease.sh acquire omega-session 90
-./scripts/jarvis-lease.sh touch          # refresh last-activity during long work
+./scripts/jarvis-lease.sh touch
 ./scripts/jarvis-lease.sh release
-./scripts/jarvis-lease.sh show
+./scripts/jarvis-up.sh
+./scripts/jarvis-down.sh          # refuses if lease held; --force overrides
+./scripts/jarvis-status.sh
 ```
 
 | Client | Wiring |
 | --- | --- |
-| **Alpha** | `Alpha::Engine::Manager#acquire_lease!` / `#release_lease!` / `#touch_activity!` (annotates `jarvis-lease`) |
-| **Beta / Assassin** | HTTP to JARVIS (`OPENAI_BASE_URL` / `VAULT_INFERENCE_URL` / `BETA_INFERENCE_URL`). For exclusive jobs, shell out to `jarvis-lease.sh` on Watchtower or mirror Alpha’s annotate pattern |
-| **Omega** | Long Pi sessions should `acquire` before heavy runs and `release` in an ensure/cleanup path |
-| **Any** | Holding a non-expired lease blocks idle sleep entirely |
+| **Alpha (graded)** | Watchtower Job entrypoint → `jarvis-session.sh`; laptop kick is submit-only |
+| **Beta / Assassin** | HTTP to JARVIS. For exclusive jobs, shell out to `jarvis-session.sh` |
+| **Omega / Pi** | Long sessions should `begin` before heavy runs and `end` in cleanup |
+| **Any** | A live Lease holder blocks idle reclaim |
 
-Activity warmth without a lease: chat traffic alone is enough — the idle
-CronJob compares llama.cpp token/request metric counters and refreshes
+Activity warmth without a lease: chat traffic alone is enough — the reconciler
+compares llama.cpp token/request metric counters and refreshes
 `last-activity-at` when they grow.
+
+### Cutover note
+
+ConfigMap `jarvis-lease` is dual-read/mirrored only until Alpha cutover
+validates. Do not add new ConfigMap lease writers.
 
 ## Security posture
 
@@ -81,6 +98,10 @@ deviations: root + `IPC_LOCK` for mlock, privileged PSA on the `jarvis`
 namespace, writable rootfs for CUDA, and loopback `hostPort` 8080. See the
 security exceptions table in [README.md](../README.md).
 
+Alpha campaign pods intentionally use `seccompProfile: Unconfined` and
+`appArmorProfile: Unconfined` so Phase 2 bubblewrap can create unprivileged
+user namespaces. JARVIS itself stays on RuntimeDefault.
+
 ### Optional non-root CUDA
 
 **Not enabled.** Upstream `ghcr.io/ggml-org/llama.cpp:server-cuda` (pinned
@@ -89,16 +110,6 @@ scratch expects a writable root. Peer Watchtower apps drop to non-root after
 a root initContainer, but that pattern is unvalidated for this digest’s GPU
 device nodes. Leave `runAsUser: 0` until a verified non-root CUDA entrypoint
 exists; do not flip the uid in a drive-by change.
-
-## Scripts
-
-```sh
-./scripts/jarvis-up.sh
-./scripts/jarvis-status.sh
-./scripts/jarvis-lease.sh acquire alpha-eval 45
-./scripts/jarvis-lease.sh release
-./scripts/jarvis-down.sh          # refuses if lease held; --force overrides
-```
 
 ## Deploy
 
@@ -109,7 +120,6 @@ exists; do not flip the uid in a drive-by change.
 
 Cutover leftovers (`alpha-llama` Deployment, stale `alpha-models` /
 `gemma-models` PV claimRefs) should already be gone from the cluster.
-`deploy.sh` skips the README-only `alpha/` tree and will not recreate them.
 GGUF weights under `/mnt/models` stay.
 
 ## Preset SoT

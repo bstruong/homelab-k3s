@@ -3,7 +3,8 @@
 #   kubectl -n alpha create job alpha-campaign-$(date -u +%Y%m%dT%H%M%SZ) \
 #     --from=cronjob/alpha-campaign
 #
-# Prefer Alpha repo helper: scripts/alpha_watchtower_kick.sh
+# Prefer Alpha repo helper: scripts/alpha_watchtower_kick.sh (submission-only;
+# cluster Job owns Lease/wake/heartbeat/release — see docs/alpha-jarvis-session-contract.md).
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -20,14 +21,23 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
+      # Bound execution: default lease TTL is 240m; leave headroom for EXIT cleanup.
+      activeDeadlineSeconds: 16200
       ttlSecondsAfterFinished: 604800
       template:
         metadata:
           labels:
             app.kubernetes.io/name: alpha-runner
+          annotations:
+            # Phase 2 bubblewrap needs unprivileged user namespaces. RuntimeDefault
+            # seccomp/AppArmor profiles often block clone(CLONE_NEWUSER); Unconfined
+            # keeps Pi trials from being permanently infrastructure-invalid.
+            container.apparmor.security.beta.kubernetes.io/campaign: unconfined
         spec:
           serviceAccountName: alpha-runner
           restartPolicy: Never
+          # Allow time to flush artifacts + jarvis-session end (scale 0 + lease release).
+          terminationGracePeriodSeconds: 180
           nodeSelector:
             kubernetes.io/hostname: watchtower
           # Pod-scoped pull auth (avoids depending on node registries.yaml alone).
@@ -40,7 +50,9 @@ spec:
             runAsUser: 1000
             runAsGroup: 1000
             seccompProfile:
-              type: RuntimeDefault
+              type: Unconfined
+            appArmorProfile:
+              type: Unconfined
           containers:
             - name: campaign
               image: registry.watchtower.local/alpha-runner:latest
@@ -51,6 +63,10 @@ spec:
                   valueFrom:
                     fieldRef:
                       fieldPath: metadata.labels['batch.kubernetes.io/job-name']
+                - name: POD_NAME
+                  valueFrom:
+                    fieldRef:
+                      fieldPath: metadata.name
                 - name: ALPHA_CAMPAIGN_FROM
                   value: "ruby"
                 - name: ALPHA_PROMOTE_LAB
@@ -80,7 +96,12 @@ spec:
                   value: "alpha-campaign"
                 - name: JARVIS_LEASE_MINUTES
                   value: "240"
+                # Entrypoint owns scale-down via jarvis-session end.
                 - name: ALPHA_JARVIS_DOWN_AFTER
+                  value: "0"
+                - name: JARVIS_SESSION_HEARTBEAT_SECONDS
+                  value: "60"
+                - name: JARVIS_LEASE_DUAL_READ
                   value: "1"
               volumeMounts:
                 - name: data
@@ -100,9 +121,14 @@ spec:
                 runAsNonRoot: true
                 runAsUser: 1000
                 runAsGroup: 1000
+                seccompProfile:
+                  type: Unconfined
+                appArmorProfile:
+                  type: Unconfined
                 capabilities:
                   drop: ["ALL"]
                 # Chromium: CHROMIUM_FLAGS includes --no-sandbox for this uid.
+                # Bubblewrap creates unprivileged user namespaces (Phase 2).
           volumes:
             - name: data
               persistentVolumeClaim:

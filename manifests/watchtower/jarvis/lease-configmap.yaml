@@ -1,6 +1,8 @@
-# Exclusive-work lease for Alpha graded runs and long Omega sessions.
-# scripts/jarvis-lease.sh writes holder + expiry annotations. The idle CronJob
-# refuses to sleep while a non-expired lease is present.
+# DEPRECATED during Phase 4 cutover — dual-read only.
+# Primary ownership is coordination.k8s.io/v1 Lease jarvis-gpu (lease.yaml).
+# scripts/jarvis-*.sh still mirror holder/expiry here so legacy Alpha kick/status
+# keep working. Delete this object and set JARVIS_LEASE_DUAL_READ=0 after the
+# Alpha launcher cutover validates end-to-end.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -11,6 +13,7 @@ metadata:
   annotations:
     jarvis.watchtower/holder: ""
     jarvis.watchtower/expires-at: ""
+    jarvis.watchtower/run-id: ""
 data:
   # Placeholder key so the object is a valid ConfigMap; state lives in annotations.
   status: idle
