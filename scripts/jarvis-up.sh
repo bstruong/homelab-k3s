@@ -2,29 +2,17 @@
 # Wake JARVIS (scale 0→1) and wait for /health.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/jarvis-common.sh"
+
 NS="${JARVIS_NAMESPACE:-jarvis}"
 DEP="${JARVIS_DEPLOYMENT:-jarvis}"
-WATCHTOWER_SSH="${WATCHTOWER_SSH:-watchtower}"
-if [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
-  BASE_URL="${OPENAI_BASE_URL:-http://127.0.0.1:8080/v1}"
-else
-  BASE_URL="${OPENAI_BASE_URL:-http://ai.watchtower.local/v1}"
-  # LAN 8080 is firewalled; rewrite legacy direct hostPort URL to Traefik ingress.
-  BASE_URL="${BASE_URL//192.0.2.10:8080/ai.watchtower.local}"
-fi
+BASE_URL="$(jarvis_default_base_url)"
 ROOT_URL="${BASE_URL%/v1}"
 TIMEOUT="${JARVIS_WAKE_TIMEOUT:-180}"
-CONTEXT="${KUBE_CONTEXT:-}"
 
-k() {
-  if [[ -n "${CONTEXT}" ]]; then
-    kubectl --context="${CONTEXT}" "$@"
-  elif [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
-    kubectl "$@"
-  else
-    ssh "${WATCHTOWER_SSH}" kubectl "$(printf '%q ' "$@")"
-  fi
-}
+k() { jarvis_kubectl "$@"; }
 
 now_rfc3339() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 

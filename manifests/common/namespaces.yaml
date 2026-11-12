@@ -109,7 +109,7 @@ metadata:
   name: alpha
   labels:
     homelab.watchtower/stack: watchtower
-    # Legacy namespace retained for cutover; GPU inference moved to jarvis.
+    # Campaign runner Jobs (CPU client to JARVIS). GPU inference stays in jarvis.
     pod-security.kubernetes.io/enforce: baseline
 ---
 apiVersion: v1

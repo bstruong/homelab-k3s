@@ -1,0 +1,45 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: alpha-runner
+  namespace: alpha
+  labels:
+    app.kubernetes.io/name: alpha-runner
+---
+# Cross-namespace: wake/sleep JARVIS and hold the lease ConfigMap.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: alpha-runner-jarvis
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: alpha-runner
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    resourceNames: ["jarvis"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["jarvis-lease"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: alpha-runner-jarvis
+  namespace: jarvis
+  labels:
+    app.kubernetes.io/name: alpha-runner
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: alpha-runner-jarvis
+subjects:
+  - kind: ServiceAccount
+    name: alpha-runner
+    namespace: alpha

@@ -2,10 +2,12 @@
 # Sleep JARVIS (scale →0). Refuses if an unexpired lease is held unless --force.
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/jarvis-common.sh"
+
 NS="${JARVIS_NAMESPACE:-jarvis}"
 DEP="${JARVIS_DEPLOYMENT:-jarvis}"
-CONTEXT="${KUBE_CONTEXT:-}"
-WATCHTOWER_SSH="${WATCHTOWER_SSH:-watchtower}"
 FORCE=false
 
 for arg in "$@"; do
@@ -18,15 +20,7 @@ for arg in "$@"; do
   esac
 done
 
-k() {
-  if [[ -n "${CONTEXT}" ]]; then
-    kubectl --context="${CONTEXT}" "$@"
-  elif [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
-    kubectl "$@"
-  else
-    ssh "${WATCHTOWER_SSH}" kubectl "$(printf '%q ' "$@")"
-  fi
-}
+k() { jarvis_kubectl "$@"; }
 
 holder="$(k -n "${NS}" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/holder}' 2>/dev/null || true)"
 expires="$(k -n "${NS}" get configmap jarvis-lease -o jsonpath='{.metadata.annotations.jarvis\.watchtower/expires-at}' 2>/dev/null || true)"

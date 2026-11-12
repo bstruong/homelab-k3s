@@ -6,19 +6,13 @@
 #   ./scripts/jarvis-lease.sh show
 set -euo pipefail
 
-NS="${JARVIS_NAMESPACE:-jarvis}"
-CONTEXT="${KUBE_CONTEXT:-}"
-WATCHTOWER_SSH="${WATCHTOWER_SSH:-watchtower}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC1091
+source "${SCRIPT_DIR}/jarvis-common.sh"
 
-k() {
-  if [[ -n "${CONTEXT}" ]]; then
-    kubectl --context="${CONTEXT}" "$@"
-  elif [[ "$(hostname 2>/dev/null || true)" == "watchtower" ]]; then
-    kubectl "$@"
-  else
-    ssh "${WATCHTOWER_SSH}" kubectl "$(printf '%q ' "$@")"
-  fi
-}
+NS="${JARVIS_NAMESPACE:-jarvis}"
+
+k() { jarvis_kubectl "$@"; }
 
 now_rfc3339() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -65,7 +59,6 @@ case "${cmd}" in
     echo "ok  lease released"
     ;;
   touch)
-    # Refresh activity (and lease expiry if held by this holder).
     k -n "${NS}" annotate configmap jarvis-lease \
       "jarvis.watchtower/last-activity-at=$(now_rfc3339)" \
       --overwrite

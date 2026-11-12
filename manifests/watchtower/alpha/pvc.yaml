@@ -1,0 +1,43 @@
+---
+# Durable Alpha campaign artifacts + git worktrees on Watchtower NVMe.
+# Nominal 50Gi; appdata StorageClass does not enforce quota.
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: alpha-data
+  labels:
+    app.kubernetes.io/name: alpha-runner
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes: ["ReadWriteOnce"]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: appdata
+  hostPath:
+    path: /mnt/appdata/alpha
+    type: DirectoryOrCreate
+  claimRef:
+    namespace: alpha
+    name: alpha-data
+  nodeAffinity:
+    required:
+      nodeSelectorTerms:
+        - matchExpressions:
+            - key: kubernetes.io/hostname
+              operator: In
+              values: ["watchtower"]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: alpha-data
+  namespace: alpha
+  labels:
+    app.kubernetes.io/name: alpha-runner
+spec:
+  accessModes: ["ReadWriteOnce"]
+  storageClassName: appdata
+  volumeName: alpha-data
+  resources:
+    requests:
+      storage: 50Gi

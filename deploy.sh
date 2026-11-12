@@ -146,10 +146,11 @@ check_appdata() {
   info "If pre-seeding empty directories on ${NODE}:"
   cat <<EOF
 
-  sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,paperless-ngx,beszel,ntfy,uptime-kuma,registry,odysseus,odysseus-chroma}
+  sudo mkdir -p ${APPDATA_ROOT}/{adguard-home,vaultwarden,pocket-id,paperless-ngx,beszel,ntfy,uptime-kuma,registry,odysseus,odysseus-chroma,alpha}
   sudo mkdir -p ${APPDATA_ROOT}/caster/postgres
   sudo mkdir -p ${APPDATA_ROOT}/immich/{postgres,library}
   sudo mkdir -p ${APPDATA_ROOT}/nextcloud/{html,postgres}
+  sudo mkdir -p ${APPDATA_ROOT}/alpha/{artifacts,src}
 
 EOF
 }
