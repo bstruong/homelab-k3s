@@ -9,7 +9,7 @@ Assassin, Odysseus, Omega) are **clients** only.
 | Namespace | `jarvis` |
 | Deployment | `jarvis` |
 | ConfigMap (presets) | `jarvis-models` → `models.ini` (**source of truth**) |
-| Lease (exclusive GPU) | `coordination.k8s.io/v1` `jarvis-gpu` |
+| Lease (exclusive GPU) | `coordination.k8s.io/v1` `jarvis-gpu` (deploy create-if-absent) |
 | Service DNS | `jarvis.jarvis.svc.cluster.local:8080` |
 | Host port | `127.0.0.1:8080` on the Watchtower node (loopback-only `hostPort`) |
 | Ingress | `ai.watchtower.local`, `jarvis.watchtower.local` |

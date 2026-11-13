@@ -26,13 +26,23 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # Kubernetes API (in-cluster SA for jarvis-up / lease)
+    # Kubernetes API via Service CIDR (ClusterIP kubernetes / default).
+    # Keep this even when Jobs prefer the node apiserver endpoint.
     - to:
         - ipBlock:
             cidr: 10.43.0.0/16
       ports:
         - protocol: TCP
           port: 443
+        - protocol: TCP
+          port: 6443
+    # Node / host kube-apiserver (k3s listens on :6443). Do not hardcode the
+    # home-LAN node IP in git — allow TCP 6443 anywhere; deploy.sh discovers
+    # the current endpoints kubernetes address and writes it into the CronJob env.
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+      ports:
         - protocol: TCP
           port: 6443
     # JARVIS inference

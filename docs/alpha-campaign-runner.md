@@ -68,6 +68,23 @@ cd ~/Projects/alpha
 ./docker/alpha-runner/build-push.sh
 ```
 
+`./deploy.sh alpha` discovers `kubectl get endpoints kubernetes` and patches the
+CronJob template with `KUBERNETES_SERVICE_HOST` / `PORT` / `PORT_HTTPS` so Jobs
+talk to the node kube-apiserver when ClusterIP flakes. No home-LAN IP is
+committed; NetworkPolicy allows Service CIDR plus TCP `6443` anywhere.
+
+Optional kick overrides (bake into the Job without changing the CronJob):
+
+```bash
+ALPHA_JOB_KUBERNETES_SERVICE_HOST=<apiserver-ip> \
+ALPHA_JOB_KUBERNETES_SERVICE_PORT=6443 \
+  ./scripts/alpha_watchtower_kick.sh
+```
+
+`./deploy.sh jarvis` applies `lease/jarvis-gpu` **create-if-absent** only — an
+existing Lease (empty or held) is left alone so redeploys do not strip
+`resourceVersion` or reset holder state.
+
 CronJob runs as uid/gid **1000** (matches appdata owner) with
 `imagePullSecrets: registry-pull`.
 If the registry htpasswd was rotated, also refresh

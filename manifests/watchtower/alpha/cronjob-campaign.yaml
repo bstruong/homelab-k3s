@@ -116,6 +116,11 @@ spec:
                   value: "0"
                 - name: JARVIS_SESSION_HEARTBEAT_SECONDS
                   value: "60"
+                # KUBERNETES_SERVICE_HOST / PORT / PORT_HTTPS are not committed
+                # here (would bake a node IP into public git). deploy.sh alpha
+                # discovers endpoints kubernetes and patches them onto this CronJob.
+                # Kick may still override via ALPHA_JOB_KUBERNETES_SERVICE_HOST
+                # / ALPHA_JOB_KUBERNETES_SERVICE_PORT on the Job.
                 - name: JARVIS_LEASE_DUAL_READ
                   value: "1"
               volumeMounts:
