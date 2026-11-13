@@ -36,6 +36,40 @@ ALPHA_GIT_SHA=<40hex> ALPHA_LAB_GIT_SHA=<40hex> HOMELAB_GIT_SHA=<40hex> \
 ./scripts/alpha_watchtower_pull.sh
 ```
 
+### Runner image digest hygiene
+
+`ALPHA_RUNNER_IMAGE` **must** be pinned to the **registry content digest**
+(`Docker-Content-Digest` / `registry.watchtower.local/alpha-runner@sha256:…`).
+
+Do **not** use a local `podman`/`docker` `RepoDigests` value from
+`image inspect` — that digest is often a local index/manifest id and can differ
+from what the registry serves, which produces `ErrImagePull` on the Job while
+the pin looks “correct” on the laptop.
+
+Prefer, after push:
+
+```bash
+# Registry SoT (skopeo / crane / buildx imagetools — not local RepoDigests)
+skopeo inspect --raw docker://registry.watchtower.local/alpha-runner:<tag> \
+  | …   # or: docker buildx imagetools inspect … | awk '/Digest:/'
+# Then:
+export ALPHA_RUNNER_IMAGE=registry.watchtower.local/alpha-runner@sha256:<64hex>
+```
+
+Confirm the digest by pulling that `@sha256:…` reference on Watchtower (or via
+registry API) before a graded kick. `build-push.sh` should print a registry
+digest; if it falls back to local `RepoDigests`, re-resolve from the registry.
+
+### Hollow-campaign guard
+
+For `ALPHA_CAMPAIGN_FROM=ruby` (default Watchtower suite; also `all` /
+`coding` / `frontend` / `hotwire`), the Job entrypoint **exits non-zero** after
+pin sync if required scenario dirs are missing under the Alpha worktree
+(`scenarios/ruby-coding`, `frontend-coding`, `hotwire-coding`, and shared
+`web-rails`). Missing trees used to Complete OK / skip-all — fail closed
+instead. Fix the Alpha pin (or clear `.skip-git-sync` so PVC matches) before
+re-kicking.
+
 Entrypoint writes `results/infra_provenance.json` (runner/JARVIS digests, lease
 identity, resolved SHAs) for Alpha `run_manifest.json` / report provenance.
 

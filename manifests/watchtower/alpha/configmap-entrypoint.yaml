@@ -103,6 +103,8 @@ data:
 
     require_pins() {
       local missing=0
+      # Digest must be registry content digest (Docker-Content-Digest), not
+      # local podman/docker RepoDigests — see docs/alpha-campaign-runner.md.
       if [[ -z "${ALPHA_RUNNER_IMAGE_DIGEST:-${ALPHA_RUNNER_IMAGE:-}}" ]]; then
         echo "fail: ALPHA_RUNNER_IMAGE_DIGEST (or digest-pinned ALPHA_RUNNER_IMAGE) required" >&2
         missing=1
@@ -224,6 +226,45 @@ data:
     export ALPHA_GIT_REF="${ALPHA_REF}"
     export ALPHA_LAB_GIT_REF="${LAB_REF}"
     export HOMELAB_GIT_REF="${HOMELAB_REF}"
+
+    # Fail closed on hollow ruby-suite campaigns: missing scenario dirs used to
+    # Complete OK / skip-all. Assert trees exist after pin sync, before doctor.
+    assert_ruby_suite_scenarios() {
+      # FROM=ruby (default Watchtower suite) runs ruby → frontend → hotwire.
+      # all/coding also reach those stages; frontend/hotwire need their tails.
+      case "${CAMPAIGN_FROM}" in
+        ruby|all|coding|frontend|hotwire) ;;
+        *)
+          echo "==> skip ruby-suite scenario guard (FROM=${CAMPAIGN_FROM})"
+          return 0
+          ;;
+      esac
+      local -a required=()
+      case "${CAMPAIGN_FROM}" in
+        ruby|all|coding)
+          required=(ruby-coding frontend-coding hotwire-coding web-rails)
+          ;;
+        frontend)
+          required=(frontend-coding hotwire-coding web-rails)
+          ;;
+        hotwire)
+          required=(hotwire-coding web-rails)
+          ;;
+      esac
+      local missing=0 sc
+      for sc in "${required[@]}"; do
+        if [[ ! -d "${ALPHA_DIR}/scenarios/${sc}" ]]; then
+          echo "fail: scenarios/${sc} missing after sync (ALPHA_GIT_SHA=${ALPHA_GIT_SHA})" >&2
+          missing=1
+        fi
+      done
+      if [[ "${missing}" -ne 0 ]]; then
+        echo "fail: hollow campaign refused — pin an Alpha SHA that includes the ruby-suite scenario dirs (or clear .skip-git-sync so PVC matches the pin)" >&2
+        exit 1
+      fi
+      echo "==> ruby-suite scenarios present (${required[*]}) FROM=${CAMPAIGN_FROM}"
+    }
+    assert_ruby_suite_scenarios
 
     # Prefer image-baked Pi harness; otherwise npm ci into the worktree.
     if [[ -x /opt/pi-harness/node_modules/.bin/pi ]]; then
