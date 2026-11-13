@@ -56,6 +56,9 @@ spec:
           containers:
             # Phase 5: do not ship :latest / moving main. Kick must bake a
             # digest-pinned ALPHA_RUNNER_IMAGE and full commit SHAs.
+            # ALPHA_RUNNER_IMAGE must use the registry content digest
+            # (Docker-Content-Digest / registry @sha256:…), never a local
+            # podman/docker RepoDigests value — those diverge and cause ErrImagePull.
             - name: campaign
               image: registry.watchtower.local/alpha-runner:pin-me
               imagePullPolicy: IfNotPresent

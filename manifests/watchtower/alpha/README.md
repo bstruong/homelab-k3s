@@ -65,7 +65,13 @@ ALPHA_GIT_SHA=<40> ALPHA_LAB_GIT_SHA=<40> HOMELAB_GIT_SHA=<40> \
 ```
 
 The CronJob template ships `alpha-runner:pin-me` as a non-runnable placeholder —
-kick must rewrite the Job image to a digest. Moving `main` / `:latest` defaults
-are removed. `ALPHA_ALLOW_MOVING_REFS=1` is diagnostics-only (not promotable).
+kick must rewrite the Job image to a **registry** content digest
+(`Docker-Content-Digest` / `@sha256:…`), never a local podman/docker
+`RepoDigests` value. Moving `main` / `:latest` defaults are removed.
+`ALPHA_ALLOW_MOVING_REFS=1` is diagnostics-only (not promotable).
+
+`FROM=ruby` (and related suite stages) fail closed after sync if
+`scenarios/{ruby,frontend,hotwire}-coding` or `web-rails` are missing — see
+[docs/alpha-campaign-runner.md](../../../docs/alpha-campaign-runner.md).
 
 Lifecycle contract: [docs/alpha-jarvis-session-contract.md](../../../docs/alpha-jarvis-session-contract.md).
