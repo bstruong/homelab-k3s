@@ -25,9 +25,26 @@ Optional bootstrap: place `.skip-git-sync` in a worktree to keep a host-seeded t
 
 - `pvc.yaml` — hostPath PV+PVC
 - `rbac.yaml` — SA `alpha-runner` + Role in `jarvis` (get Deployment, scale, Lease)
-- `networkpolicy.yaml` — egress to DNS, API, JARVIS, ntfy, registry, HTTPS
+- `networkpolicy.yaml` — egress to DNS, Service CIDR API, node `:6443` apiserver (no LAN IP in git), JARVIS, ntfy, registry, HTTPS
 - `configmap-entrypoint.yaml` — Job entrypoint (`jarvis-session` around campaign)
 - `cronjob-campaign.yaml` — suspended CronJob template (`activeDeadlineSeconds`, userns)
+
+## Apiserver reachability
+
+k3s ClusterIP `kubernetes` (`10.43.0.1:443`) can intermittently refuse from alpha
+pods. `./deploy.sh alpha` discovers the current `endpoints kubernetes` address/port
+and patches `KUBERNETES_SERVICE_HOST` / `KUBERNETES_SERVICE_PORT` /
+`KUBERNETES_SERVICE_PORT_HTTPS` onto CronJob `alpha-campaign` (live object only —
+never committed). NetworkPolicy allows Service CIDR **and** TCP `6443` to
+`0.0.0.0/0` so the node apiserver works without a hardcoded home-LAN IP.
+
+Per-Job overrides (Alpha kick script) still win when set:
+
+```bash
+ALPHA_JOB_KUBERNETES_SERVICE_HOST=<apiserver-ip> \
+ALPHA_JOB_KUBERNETES_SERVICE_PORT=6443 \
+  ./scripts/alpha_watchtower_kick.sh
+```
 
 ## Image
 

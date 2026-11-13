@@ -2,6 +2,10 @@
 # scripts/jarvis-session.sh / jarvis-lease.sh CAS-update holderIdentity, renewTime,
 # leaseDurationSeconds, and jarvis.watchtower/* annotations. The idle reconciler
 # treats renewTime+leaseDurationSeconds as the exclusivity window.
+#
+# deploy.sh applies this create-if-absent only. Re-applying an existing Lease via
+# kubectl apply strips resourceVersion and fails; live holder/renew state must
+# never be reset by a redeploy.
 apiVersion: coordination.k8s.io/v1
 kind: Lease
 metadata:

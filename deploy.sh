@@ -312,6 +312,70 @@ kapply() {
   fi
 }
 
+# coordination.k8s.io Lease objects reject client-side apply updates when
+# resourceVersion is absent (kubectl strips it from the manifest). Existing
+# leases also carry live holder/renew state that a redeploy must not reset.
+# Create once; leave alone thereafter.
+apply_lease_create_if_absent() {
+  local lease_file="$1"
+  local ns name
+  [[ -f "${lease_file}" ]] || return 0
+
+  ns="$(awk '
+    /^[[:space:]]*namespace:[[:space:]]*/ { print $2; exit }
+  ' "${lease_file}")"
+  name="$(awk '
+    /^metadata:/ { in_meta=1; next }
+    in_meta && /^[[:space:]]*name:[[:space:]]*/ { print $2; exit }
+    in_meta && /^[^[:space:]]/ { exit }
+  ' "${lease_file}")"
+  if [[ -z "${ns}" || -z "${name}" ]]; then
+    warn "could not parse namespace/name from ${lease_file}; skipping lease apply"
+    return 0
+  fi
+
+  if kubectl -n "${ns}" get lease "${name}" >/dev/null 2>&1; then
+    ok "lease/${name} in ${ns} already exists — create-if-absent skip"
+    return 0
+  fi
+
+  info "Creating lease/${name} in ${ns} (absent)"
+  kapply "${lease_file}"
+}
+
+# Discover the kube-apiserver endpoint from the kubernetes Endpoints object (node
+# address + port), not Service ClusterIP — ClusterIP to 10.43.0.1:443 has been
+# intermittently connection-refused from alpha pods on this single-node k3s.
+# Writes into the live CronJob template only; never commits a LAN IP to git.
+# Operators may still override per-Job via ALPHA_JOB_KUBERNETES_SERVICE_HOST /
+# ALPHA_JOB_KUBERNETES_SERVICE_PORT on the Alpha kick script.
+configure_alpha_apiserver_env() {
+  local host port
+  host="$(kubectl -n default get endpoints kubernetes \
+    -o jsonpath='{.subsets[0].addresses[0].ip}' 2>/dev/null || true)"
+  port="$(kubectl -n default get endpoints kubernetes \
+    -o jsonpath='{.subsets[0].ports[0].port}' 2>/dev/null || true)"
+
+  if [[ -z "${host}" || -z "${port}" ]]; then
+    warn "could not discover endpoints kubernetes — CronJob keeps default in-cluster API env"
+    warn "kick may still set ALPHA_JOB_KUBERNETES_SERVICE_HOST / PORT overrides"
+    return 0
+  fi
+
+  if [[ "${DRY_RUN}" == true ]]; then
+    info "would patch cronjob/alpha-campaign API env host=<discovered> port=${port} (IP omitted from dry-run log)"
+    return 0
+  fi
+
+  info "Patching cronjob/alpha-campaign with discovered kube-apiserver endpoint (port ${port})"
+  kubectl -n alpha set env cronjob/alpha-campaign \
+    "KUBERNETES_SERVICE_HOST=${host}" \
+    "KUBERNETES_SERVICE_PORT=${port}" \
+    "KUBERNETES_SERVICE_PORT_HTTPS=${port}" \
+    >/dev/null
+  ok "alpha CronJob template uses discovered apiserver endpoint"
+}
+
 apply_common() {
   info "Applying namespaces and storage class"
   kapply "${COMMON_DIR}/namespaces.yaml"
@@ -319,7 +383,7 @@ apply_common() {
 }
 
 apply_apps() {
-  local dir app
+  local dir app manifest
   for dir in "${MANIFEST_DIR}"/*/; do
     app="$(basename "${dir}")"
     if [[ -n "${ONLY_APP}" && "${app}" != "${ONLY_APP}" ]]; then
@@ -335,7 +399,7 @@ apply_apps() {
     info "Applying ${app}"
     # PVs, PVCs and config first, so WaitForFirstConsumer binding has something
     # to bind the moment a pod is scheduled. Re-applying them as part of the
-    # directory below is a no-op.
+    # per-file pass below is a no-op.
     if [[ -f "${dir}/pvc.yaml" ]]; then
       kapply "${dir}/pvc.yaml"
     fi
@@ -345,8 +409,26 @@ apply_apps() {
     if [[ -f "${dir}/rbac.yaml" ]]; then
       kapply "${dir}/rbac.yaml"
     fi
-    # lease-configmap is applied with the directory pass below.
-    kapply "${dir}"
+
+    # Per-file apply so lease.yaml can be create-if-absent without failing the
+    # whole directory when the Lease already exists.
+    for manifest in "${dir}"*.yaml; do
+      case "$(basename "${manifest}")" in
+        pvc.yaml|configmap.yaml|rbac.yaml)
+          continue
+          ;;
+        lease.yaml)
+          apply_lease_create_if_absent "${manifest}"
+          ;;
+        *)
+          kapply "${manifest}"
+          ;;
+      esac
+    done
+
+    if [[ "${app}" == "alpha" ]]; then
+      configure_alpha_apiserver_env
+    fi
   done
 }
 
