@@ -86,12 +86,14 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 10
           resources:
+            # OISD Big + HaGeZi Pro/Pro+ expand well past 512Mi in-process;
+            # v0.107.52 was CrashLoop OOMKilled under that limit after boot.
             requests:
               cpu: 50m
-              memory: 128Mi
+              memory: 256Mi
             limits:
               cpu: 500m
-              memory: 512Mi
+              memory: 1536Mi
       volumes:
         - name: data
           persistentVolumeClaim:
