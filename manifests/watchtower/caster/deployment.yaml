@@ -3,12 +3,11 @@
 # postgres-statefulset.yaml; this Deployment is stateless and owns nothing on
 # disk.
 #
-# The image does not exist yet. `registry.watchtower.local/caster:latest` has
-# to be built and pushed before this will schedule; the manifest is written
-# correct in advance of that rather than left as a placeholder. Note there is
-# deliberately NO imagePullSecret: containerd authenticates to the registry
-# through /etc/rancher/k3s/registries.yaml on the node, not through a
-# Kubernetes Secret, so a pull secret here would be dead configuration.
+# Image: `registry.watchtower.local/caster:latest` (build/push before schedule).
+# Pull auth uses the `registry-secret` dockerconfig in this namespace
+# (imagePullSecrets). Node `/etc/rancher/k3s/registries.yaml` is a fallback for
+# other workloads; keep both in sync with Vaultwarden "Watchtower Container
+# Registry" when the htpasswd rotates — a stale pull secret caused ErrImagePull.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -34,6 +33,8 @@ spec:
       nodeSelector:
         kubernetes.io/hostname: watchtower
       automountServiceAccountToken: false
+      imagePullSecrets:
+        - name: registry-secret
       securityContext:
         runAsNonRoot: true
         # uid/gid of the `rails` user the Dockerfile creates. NOT 999 — that is
