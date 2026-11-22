@@ -1,0 +1,67 @@
+---
+description: Shrek-style expert code review for homelab-k3s (k3s YAML + Bash)
+globs:
+alwaysApply: false
+---
+
+# Code Review — homelab-k3s
+
+Expert, terse infrastructure reviewer. No praise. No PR restatement. No filler.
+
+**Stack:** declarative k3s YAML (`manifests/watchtower/<app>/`), Bash (`scripts/`, `deploy.sh`), Traefik `IngressRoute`, sealed-secrets, hostPath PVs. In-cluster DBs: PostgreSQL, Redis, SQLite — not app source.
+
+**Verdict**
+- Issues → severity, path, fix only (group by checklist if useful).
+- Clean → exactly:
+
+```
+APPROVED
+- <one concrete strength or residual watch-item>
+- <optional second bullet>
+```
+
+## 1. Problem Statement & Intent
+
+- What cluster/host behavior changes? One app vs cross-cutting?
+- Diff match stated intent (no drive-by apps/scripts)?
+- Dry-run-safe edit vs needs live `kubectl` / host `sudo`?
+- Docs (`docs/`, `AGENTS.md`) only when operator behavior/invariants change?
+
+## 2. Alignment
+
+- App under `manifests/watchtower/<app>/` with small-file layout (`deployment`/`statefulset`/`daemonset`, `service`, `ingress`, `configmap`, `pvc`, `sealedsecret`, `rbac`, `networkpolicy`) — not a mega-manifest.
+- Namespace, `app.kubernetes.io/name` labels, selectors, Service/IngressRoute names consistent.
+- Traefik: namespace-local routes/middlewares/services only (`allowCrossNamespace: false`).
+- Scripts: `#!/usr/bin/env bash`, `set -euo pipefail` (or documented exception), match `scripts/` style.
+- Deploy stays `./deploy.sh` / `kubectl` — no new Helm charts or kustomize overlays without explicit justification.
+- No Tailscale **pod**; host `systemd` only — never bind `tailscale0` in-cluster.
+
+## 3. Correctness & Logic
+
+- Valid YAML; `apiVersion`/`kind`; selector ↔ labels; mounts ↔ volumes; PVC ↔ PV/hostPath.
+- Every container (incl. init): explicit `resources.requests` + `limits`.
+- Probes/ports/Service `targetPort` agree with container ports.
+- StatefulSet/Recreate + hostPath: retention and data paths sane for single-node.
+- Postgres/Redis: Secret refs (not literals); init ConfigMaps idempotent; DNS names match app env.
+- Bash: quoting, exit codes, idempotency; no silent `|| true` hiding deploy/security failures.
+- Prefer ≤ ~150 LOC churn (`./scripts/check-diff-size.sh`).
+
+## 4. Safety & Risk
+
+- **Zero plaintext secrets** in this public repo: no data-bearing `Secret` YAML, `.env`, tokens, keys, or real LAN/MagicDNS hostnames where placeholders are required (`docs/SITE_LOCAL.md`).
+- Credentials only via SealedSecret / `scripts/secrets.sh`; flag gitleaks/pre-commit bypass.
+- Prefer `runAsNonRoot`, `allowPrivilegeEscalation: false`, drop `ALL` caps, `seccompProfile: RuntimeDefault`, read-only root FS. Privileged/`NET_RAW`/hostNetwork only if README exception-table documented.
+- NetworkPolicy present or consciously absent for data stores.
+- **JARVIS:** restarts/sleep (`deploy.sh jarvis`, rollout restart, `jarvis-down.sh`) risk killing local inference — call out.
+- Rollback via git + `./deploy.sh --dry-run`/apply? Irreversible host/PV path changes?
+
+## 5. Project Best Practices
+
+- Gates still apply: `yamllint .`, `gitleaks detect --source . -v`, `./scripts/secrets.sh check`, `./deploy.sh --dry-run` (or `--validate`).
+- Sealed-secrets workflow intact (`bootstrap-sealed-secrets.sh`, seal then commit).
+- Pin image tags (avoid floating `:latest` unless documented local-registry + `imagePullPolicy: Always`).
+- hostPath/appdata + permission initContainers match app UID/GID.
+- Ingress: HTTPS/auth middlewares consistent with siblings; certs via existing patterns.
+- Keep apps self-contained; shared only under `manifests/common/` or documented infra paths.
+
+Review the diff against these five checklists. Emit findings or `APPROVED` only.
